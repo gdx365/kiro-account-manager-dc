@@ -17,6 +17,41 @@ use crate::state::AppState;
 use std::sync::{Mutex, MutexGuard};
 use tauri::{Emitter, State};
 
+#[cfg(windows)]
+fn ensure_kiro_protocol_points_to_current_app() -> Result<(), String> {
+    use winreg::enums::HKEY_CURRENT_USER;
+    use winreg::RegKey;
+
+    let exe_path = std::env::current_exe()
+        .map_err(|e| format!("Failed to resolve current exe path: {e}"))?
+        .display()
+        .to_string();
+    let command = format!("\"{exe_path}\" \"%1\"");
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+
+    for scheme in ["kiro", "kiro-account-manager"] {
+        let class_path = format!("Software\\Classes\\{scheme}");
+        let (class_key, _) = hkcu
+            .create_subkey(&class_path)
+            .map_err(|e| format!("Failed to create protocol key `{scheme}`: {e}"))?;
+        class_key
+            .set_value("", &format!("URL:{scheme} Protocol"))
+            .map_err(|e| format!("Failed to set protocol title `{scheme}`: {e}"))?;
+        class_key
+            .set_value("URL Protocol", &"")
+            .map_err(|e| format!("Failed to set URL Protocol flag `{scheme}`: {e}"))?;
+
+        let (cmd_key, _) = hkcu
+            .create_subkey(format!("{class_path}\\shell\\open\\command"))
+            .map_err(|e| format!("Failed to create command key `{scheme}`: {e}"))?;
+        cmd_key
+            .set_value("", &command)
+            .map_err(|e| format!("Failed to set protocol command `{scheme}`: {e}"))?;
+    }
+
+    Ok(())
+}
+
 fn lock_state<'a, T>(mutex: &'a Mutex<T>, label: &str) -> Result<MutexGuard<'a, T>, String> {
     mutex
         .lock()
@@ -40,13 +75,10 @@ fn resolve_idc_login_email(
     email: Option<String>,
     user_id: Option<String>,
 ) -> Result<String, String> {
-    if provider_id == "Enterprise" {
+    if provider_id == "Enterprise" || provider_id == "BuilderId" {
         email
             .or(user_id)
             .ok_or_else(|| format!("{} 账号缺少 userId 或 email", provider_id))
-    } else if provider_id == "BuilderId" {
-        // BuilderId 允许没有 email/userId
-        Ok(email.or(user_id).unwrap_or_else(|| "builderid_unknown".to_string()))
     } else {
         require_login_email(email)
     }
@@ -139,6 +171,9 @@ async fn login_social(
     state: State<'_, AppState>,
     config: &crate::auth::providers::ProviderConfig,
 ) -> Result<String, String> {
+    #[cfg(windows)]
+    ensure_kiro_protocol_points_to_current_app()?;
+
     let provider_id = config.provider_id.clone();
     let pending = prepare_pending_social_login(&provider_id, get_machine_id());
     let redirect_uri = social_callback_redirect_uri();
@@ -436,7 +471,21 @@ mod tests {
             .is_none());
     }
 
-    
+    #[test]
+    fn prepare_pending_social_login_creates_callback_context() {
+        let pending = prepare_pending_social_login("Google", "machine-123".to_string());
 
-    
+        assert_eq!(pending.provider, "Google");
+        assert_eq!(pending.machineid, "machine-123");
+        assert!(!pending.state.is_empty());
+        assert!(!pending.code_verifier.is_empty());
+    }
+
+    #[test]
+    fn social_callback_redirect_uri_uses_compat_callback_path() {
+        let redirect_uri = social_callback_redirect_uri();
+
+        assert!(redirect_uri.starts_with("kiro://"));
+        assert!(redirect_uri.ends_with("/authenticate-success"));
+    }
 }
