@@ -1188,6 +1188,7 @@ fn with_kiro_upstream_headers(
         .header("Authorization", format!("Bearer {}", upstream.access_token))
         .header("Content-Type", "application/json")
         .header("Accept", accept)
+        .header("host", format!("q.{}.amazonaws.com", upstream.region))
         .header(header::USER_AGENT, upstream.user_agent.clone())
         .header("x-amz-user-agent", upstream.user_agent.clone())
         .header("amz-sdk-invocation-id", invocation_id)

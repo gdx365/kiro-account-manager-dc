@@ -53,7 +53,7 @@ Kiro Account Manager 是一个基于 **Tauri 2.x** 的桌面应用，用于集�
 - Kiro 集成：切换账号、同步模型 / 代理 / MCP / Steering / Skills / Hooks / Custom Agents / Powers
 - 自动化能力：Token 自动刷新、余额不足自动换号、机器 ID 绑定与重置
 - 桌面端能力：Deep Link OAuth 回调、单实例、系统托盘、自动更新
-- 网关能力：内置 Kiro API Gateway，支持 Anthropic Messages、OpenAI Responses 与流式转发
+- 网关能力：✅ **已内置** Kiro API Gateway，支持 Anthropic Messages、OpenAI Responses 与流式转发（无需自行编译）
 
 **数据存储位置**：
 - 应用数据：`~/.kiro-account-manager/`
@@ -71,17 +71,17 @@ Kiro Account Manager 是一个基于 **Tauri 2.x** 的桌面应用，用于集�
 
 ## 📥 下载
 
-**最新版本 v1.8.3**（发布于 2026-02-27）：请前往 [Releases](https://github.com/hj01857655/kiro-account-manager/releases/latest)（自动保持最新）
+**最新版本 v1.8.5**（发布于 2026-04-27）：请前往 [Releases](https://github.com/hj01857655/kiro-account-manager/releases/latest)（自动保持最新）
 
 > 以下下载链接可能滞后，以 Releases 为准。
 
 | 平台 | 架构 | 文件格式 | 下载链接 |
 |------|------|---------|---------|
-| 🪟 **Windows** | x64 | MSI 安装包 | [KiroAccountManager_1.8.3_x64_zh-CN.msi](https://github.com/hj01857655/kiro-account-manager/releases/download/v1.8.3/KiroAccountManager_1.8.3_x64_zh-CN.msi) |
-| 🍎 **macOS** | Intel (x64) | DMG 镜像 | [KiroAccountManager_1.8.3_x64.dmg](https://github.com/hj01857655/kiro-account-manager/releases/download/v1.8.3/KiroAccountManager_1.8.3_x64.dmg) |
-| 🍎 **macOS** | Apple Silicon (M1/M2/M3) | DMG 镜像 | [KiroAccountManager_1.8.3_aarch64.dmg](https://github.com/hj01857655/kiro-account-manager/releases/download/v1.8.3/KiroAccountManager_1.8.3_aarch64.dmg) |
-| 🐧 **Linux** | x86_64 | AppImage | [KiroAccountManager_1.8.3_amd64.AppImage](https://github.com/hj01857655/kiro-account-manager/releases/download/v1.8.3/KiroAccountManager_1.8.3_amd64.AppImage) |
-| 🐧 **Linux** | x86_64 | DEB 包 | [KiroAccountManager_1.8.3_amd64.deb](https://github.com/hj01857655/kiro-account-manager/releases/download/v1.8.3/KiroAccountManager_1.8.3_amd64.deb) |
+| 🪟 **Windows** | x64 | MSI 安装包 | [KiroAccountManager_1.8.5_x64_zh-CN.msi](https://github.com/hj01857655/kiro-account-manager/releases/download/v1.8.5/KiroAccountManager_1.8.5_x64_zh-CN.msi) |
+| 🍎 **macOS** | Intel (x64) | DMG 镜像 | [KiroAccountManager_1.8.5_x64.dmg](https://github.com/hj01857655/kiro-account-manager/releases/download/v1.8.5/KiroAccountManager_1.8.5_x64.dmg) |
+| 🍎 **macOS** | Apple Silicon (M1/M2/M3) | DMG 镜像 | [KiroAccountManager_1.8.5_aarch64.dmg](https://github.com/hj01857655/kiro-account-manager/releases/download/v1.8.5/KiroAccountManager_1.8.5_aarch64.dmg) |
+| 🐧 **Linux** | x86_64 | AppImage | [KiroAccountManager_1.8.5_amd64.AppImage](https://github.com/hj01857655/kiro-account-manager/releases/download/v1.8.5/KiroAccountManager_1.8.5_amd64.AppImage) |
+| 🐧 **Linux** | x86_64 | DEB 包 | [KiroAccountManager_1.8.5_amd64.deb](https://github.com/hj01857655/kiro-account-manager/releases/download/v1.8.5/KiroAccountManager_1.8.5_amd64.deb) |
 
 > **macOS 样式说明**：若出现样式显示异常，请基于当前仓库源码自行调整（我没有 macOS 设备，无法复现与调试）。
 
@@ -437,7 +437,7 @@ A: v1.8.3+ 支持同版本覆盖升级，直接继续安装即可。如果仍有
 
 ### 🔨 自行编译
 
-如需使用最新的开发中功能（如 Kiro API 网关），可以从源码编译：
+如需使用最新的开发中功能，可以从源码编译：
 
 **前置要求**：
 - Node.js 20+
@@ -546,4 +546,4 @@ src-tauri/src/        Rust + Tauri 后端
 
 <p align="center">Made with ❤️ by hj01857655</p>
 
-<p align="center"><sub>最后更新：2026-04-10 | 版本：v1.8.3</sub></p>
+<p align="center"><sub>最后更新：2026-04-27 | 版本：v1.8.5</sub></p>
