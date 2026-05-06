@@ -252,8 +252,11 @@ fn looks_like_context_compaction_request(request: &NormalizedRequest) -> bool {
             .content
             .as_ref()
             .map(|value| value.to_string())
-            .unwrap_or_default();
-        text.contains("CONTEXT CHECKPOINT COMPACTION")
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        text.contains("context checkpoint compaction")
+            || text.contains("create a new anchored summary")
+            || text.contains("conversation history above")
     })
 }
 
@@ -830,7 +833,15 @@ pub async fn proxy_handler(
         }
         resumed
     } else {
-        incoming_request.clone()
+        let mut passthrough = incoming_request.clone();
+        if matches!(format, ResponseFormat::OpenAI)
+            && looks_like_context_compaction_request(&incoming_request)
+        {
+            passthrough.messages = sanitize_messages_for_compaction(&incoming_request.messages);
+            passthrough.tools = None;
+            passthrough.tool_choice = None;
+        }
+        passthrough
     };
 
     let request_log_context = RequestLogContext {
