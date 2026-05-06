@@ -1,0 +1,11 @@
+[
+  "bind_machine_id_to_account",
+  "unbind_machine_id_from_account",
+  "get_bound_machine_id",
+  "get_all_bound_machine_ids",
+  "backup_machine_guid",
+  "get_machine_guid_backup",
+  "restore_machine_guid",
+  "clear_macos_override",
+  "restart_as_admin"
+]

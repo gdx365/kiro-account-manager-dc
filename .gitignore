@@ -26,7 +26,6 @@ src-tauri/target/
 # Logs
 *.log
 
-docs/
 
 # Python
 __pycache__/
@@ -36,7 +35,6 @@ __pycache__/
 .env
 
 # Downloaded files
-scripts/
 src-tauri/clippy_warnings.txt
 1.json
 

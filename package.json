@@ -23,7 +23,11 @@
     "release:minor": "standard-version --release-as minor",
     "release:major": "standard-version --release-as major",
     "release:patch": "standard-version --release-as patch",
-    "release:check": "pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/check-release-pipeline.ps1"
+    "release:check": "pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/check-release-pipeline.ps1",
+    "check:commands": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/check-command-contract.ps1",
+    "check:encoding": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/check-mojibake.ps1",
+    "report:commands": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/export-command-matrix.ps1",
+    "check:deprecated": "powershell -NoLogo -NoProfile -ExecutionPolicy Bypass -File ./scripts/check-deprecated-invokes.ps1"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
