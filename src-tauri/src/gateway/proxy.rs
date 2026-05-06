@@ -866,7 +866,7 @@ pub async fn proxy_handler(
                 None,
                 Some(response_body.as_str()),
             );
-            let body = format!("data: {}\n\ndata: [DONE]\n\n", response);
+            let body = format!("event: response.completed\ndata: {}\n\n", response);
             return Response::builder()
                 .status(StatusCode::OK)
                 .header(
@@ -3003,35 +3003,14 @@ fn stream_proxy_response(
                                                     .await;
                                                 }
                                                 ResponseFormat::Responses => {
-                                                    if responses_tool_added_emitted
-                                                        .insert(id.clone())
-                                                    {
+                                                    if responses_tool_added_emitted.insert(id.clone()) {
                                                         let item_id = format!("fc_{id}");
                                                         responses_tool_item_ids
-                                                            .insert(id.clone(), item_id.clone());
+                                                            .insert(id.clone(), item_id);
                                                         let output_index = responses_next_output_index;
                                                         responses_next_output_index += 1;
                                                         responses_tool_output_indexes
                                                             .insert(id.clone(), output_index);
-                                                        let data = json!({
-                                                            "type": "response.output_item.added",
-                                                            "response_id": response_id,
-                                                            "output_index": output_index,
-                                                            "item": {
-                                                                "id": item_id,
-                                                                "type": "function_call",
-                                                                "status": "in_progress",
-                                                                "call_id": id,
-                                                                "name": name,
-                                                                "arguments": ""
-                                                            }
-                                                        });
-                                                        send_responses_event(
-                                                            &tx,
-                                                            &mut responses_sequence_number,
-                                                            data,
-                                                        )
-                                                        .await;
                                                     }
                                                 }
                                                 ResponseFormat::OpenAI => {
@@ -3072,30 +3051,7 @@ fn stream_proxy_response(
                                                     }
                                                 }
                                                 ResponseFormat::Responses => {
-                                                    if let Some(output_index) =
-                                                        responses_tool_output_indexes
-                                                            .get(&id)
-                                                            .copied()
-                                                    {
-                                                        let item_id = responses_tool_item_ids
-                                                            .get(&id)
-                                                            .cloned()
-                                                            .unwrap_or_else(|| format!("fc_{id}"));
-                                                        let data = json!({
-                                                            "type": "response.function_call_arguments.delta",
-                                                            "response_id": response_id,
-                                                            "item_id": item_id,
-                                                            "output_index": output_index,
-                                                            "call_id": id,
-                                                            "delta": input_delta
-                                                        });
-                                                        send_responses_event(
-                                                            &tx,
-                                                            &mut responses_sequence_number,
-                                                            data,
-                                                        )
-                                                        .await;
-                                                    }
+                                                    let _ = input_delta;
                                                 }
                                                 ResponseFormat::OpenAI => {
                                                     // OpenAI 格式在最后统一发送 tool_calls
@@ -3131,50 +3087,9 @@ fn stream_proxy_response(
                                                         name.clone(),
                                                         input.clone(),
                                                     ));
-                                                    if responses_tool_done_emitted.insert(id.clone()) {
-                                                        let output_index = responses_tool_output_indexes
-                                                            .remove(&id)
-                                                            .unwrap_or_else(|| {
-                                                                let idx = responses_next_output_index;
-                                                                responses_next_output_index += 1;
-                                                                idx
-                                                            });
-                                                        let item_id = responses_tool_item_ids
-                                                            .remove(&id)
-                                                            .unwrap_or_else(|| format!("fc_{id}"));
-                                                        let done_args = build_stream_responses_function_call_arguments_done_event(
-                                                            &response_id,
-                                                            &item_id,
-                                                            output_index,
-                                                            &id,
-                                                            &input,
-                                                        );
-                                                        send_responses_event(
-                                                            &tx,
-                                                            &mut responses_sequence_number,
-                                                            done_args,
-                                                        )
-                                                        .await;
-                                                        let data = json!({
-                                                            "type": "response.output_item.done",
-                                                            "response_id": response_id,
-                                                            "output_index": output_index,
-                                                            "item": {
-                                                                "id": item_id,
-                                                                "type": "function_call",
-                                                                "status": "completed",
-                                                                "call_id": id,
-                                                                "name": name,
-                                                                "arguments": input
-                                                            }
-                                                        });
-                                                        send_responses_event(
-                                                            &tx,
-                                                            &mut responses_sequence_number,
-                                                            data,
-                                                        )
-                                                        .await;
-                                                    }
+                                                    responses_tool_done_emitted.insert(id.clone());
+                                                    responses_tool_output_indexes.remove(&id);
+                                                    responses_tool_item_ids.remove(&id);
                                                 }
                                             }
                                             ResponseFormat::OpenAI => {
@@ -3242,28 +3157,7 @@ fn stream_proxy_response(
                                                     }
                                                 }
                                                 ResponseFormat::Responses => {
-                                                    if let Some(annotation) =
-                                                        build_responses_citation_annotations(
-                                                            std::slice::from_ref(&citation),
-                                                        )
-                                                        .into_iter()
-                                                        .next()
-                                                    {
-                                                        let data = build_responses_annotation_added_event(
-                                                            &response_id,
-                                                            &message_id,
-                                                            annotation,
-                                                            aggregated.citations.len() - 1,
-                                                            responses_sequence_number,
-                                                        );
-                                                        responses_sequence_number += 1;
-                                                        send_responses_event(
-                                                            &tx,
-                                                            &mut responses_sequence_number,
-                                                            data,
-                                                        )
-                                                        .await;
-                                                    }
+                                                    let _ = citation;
                                                 }
                                                 ResponseFormat::OpenAI => {
                                                     // OpenAI 格式暂不支持 citations
@@ -3411,7 +3305,6 @@ fn stream_proxy_response(
                     &aggregated,
                 )
                 .await;
-                send_data(&tx, "[DONE]").await;
             }
             ResponseFormat::OpenAI => {
                 // 发送 tool_calls（如果有）
@@ -3691,11 +3584,16 @@ async fn send_responses_event(
     sequence_number: &mut usize,
     mut payload: Value,
 ) -> bool {
+    let event_name = payload
+        .get("type")
+        .and_then(Value::as_str)
+        .unwrap_or("response.event")
+        .to_string();
     if payload.get("sequence_number").is_none() {
         payload["sequence_number"] = json!(*sequence_number);
         *sequence_number += 1;
     }
-    send_data(tx, &payload.to_string()).await
+    send_event(tx, Some(&event_name), &payload.to_string()).await
 }
 
 #[cfg(test)]
