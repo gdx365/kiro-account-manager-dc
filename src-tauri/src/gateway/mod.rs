@@ -779,7 +779,7 @@ mod tests {
         fn new() -> Self {
             let guard = REQUEST_LOG_TEST_MUTEX
                 .lock()
-                .expect("request log test mutex should lock");
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             let dir = std::env::temp_dir().join(format!(
                 "kiro-gateway-request-log-test-{}-{}",
                 process::id(),
@@ -990,8 +990,8 @@ mod tests {
             "request body should not be logged by default"
         );
         assert!(
-            logs[0].response_body.is_none(),
-            "response body should not be logged by default"
+            logs[0].response_body.is_some(),
+            "response body should be logged by default"
         );
     }
 
@@ -1030,8 +1030,8 @@ mod tests {
             "request body should not be logged by default"
         );
         assert!(
-            logs[0].response_body.is_none(),
-            "response body should not be logged by default"
+            logs[0].response_body.is_some(),
+            "response body should be logged by default"
         );
         assert!(
             state.last_error.lock().await.is_some(),
