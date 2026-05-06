@@ -17,6 +17,7 @@ use tokio::net::lookup_host;
 use uuid::Uuid;
 
 pub const TOOL_DESCRIPTION_MAX_LENGTH: usize = 1024;
+const FALLBACK_INTERNAL_MODEL_ID: &str = "claude-sonnet-4.5";
 const WEB_SEARCH_TOOL_NAME: &str = "web_search";
 const WEB_SEARCH_TOOL_DESCRIPTION: &str =
     "Search the web for current information and return relevant results.";
@@ -466,7 +467,7 @@ pub fn get_internal_model_id(external_model: &str) -> Result<String, String> {
         | "claude-sonnet-4-5-20250929"
         | "claude-sonnet-4.5"
         | "claude-sonnet-latest"
-        | "sonnet" => "claude-sonnet-4.5",
+        | "sonnet" => FALLBACK_INTERNAL_MODEL_ID,
         "claude-sonnet-4" | "claude-sonnet-4-20250514" => "claude-sonnet-4",
         "claude-3-7-sonnet-20250219" | "claude-3.7-sonnet" => "claude-3-7-sonnet-20250219",
         "claude-3-5-sonnet-20241022" | "claude-3-5-sonnet-latest" | "claude-3.5-sonnet" => {
@@ -475,7 +476,7 @@ pub fn get_internal_model_id(external_model: &str) -> Result<String, String> {
         "auto" | "default" => "auto",
         other if other.starts_with("claude-opus-4-6-") => "claude-opus-4.6",
         other if other.starts_with("claude-sonnet-4-6-") => "claude-sonnet-4.6",
-        other => other,
+        _ => FALLBACK_INTERNAL_MODEL_ID,
     };
 
     Ok(model_id.to_string())
@@ -2898,6 +2899,11 @@ mod tests {
         );
         assert_eq!(
             get_internal_model_id("sonnet").expect("plain sonnet alias should default to 4.5"),
+            "claude-sonnet-4.5"
+        );
+        assert_eq!(
+            get_internal_model_id("gpt-4o-mini")
+                .expect("unknown model aliases should fallback to sonnet 4.5"),
             "claude-sonnet-4.5"
         );
     }
