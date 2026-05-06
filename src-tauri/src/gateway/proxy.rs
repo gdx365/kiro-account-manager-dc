@@ -2747,7 +2747,7 @@ fn stream_proxy_response(
                     "output": []
                 }
             });
-            if !send_data(&tx, &created.to_string()).await {
+            if !send_responses_event(&tx, &mut responses_sequence_number, created).await {
                 return;
             }
 
@@ -2763,7 +2763,7 @@ fn stream_proxy_response(
                     "content": []
                 }
             });
-            if !send_data(&tx, &output_item_added.to_string()).await {
+            if !send_responses_event(&tx, &mut responses_sequence_number, output_item_added).await {
                 return;
             }
         }
@@ -3027,7 +3027,12 @@ fn stream_proxy_response(
                                                                 "arguments": ""
                                                             }
                                                         });
-                                                        send_data(&tx, &data.to_string()).await;
+                                                        send_responses_event(
+                                                            &tx,
+                                                            &mut responses_sequence_number,
+                                                            data,
+                                                        )
+                                                        .await;
                                                     }
                                                 }
                                                 ResponseFormat::OpenAI => {
@@ -3081,7 +3086,12 @@ fn stream_proxy_response(
                                                             "call_id": id,
                                                             "delta": input_delta
                                                         });
-                                                        send_data(&tx, &data.to_string()).await;
+                                                        send_responses_event(
+                                                            &tx,
+                                                            &mut responses_sequence_number,
+                                                            data,
+                                                        )
+                                                        .await;
                                                     }
                                                 }
                                                 ResponseFormat::OpenAI => {
@@ -3133,7 +3143,12 @@ fn stream_proxy_response(
                                                             &id,
                                                             &input,
                                                         );
-                                                        send_data(&tx, &done_args.to_string()).await;
+                                                        send_responses_event(
+                                                            &tx,
+                                                            &mut responses_sequence_number,
+                                                            done_args,
+                                                        )
+                                                        .await;
                                                         let data = json!({
                                                             "type": "response.output_item.done",
                                                             "response_id": response_id,
@@ -3147,7 +3162,12 @@ fn stream_proxy_response(
                                                                 "arguments": input
                                                             }
                                                         });
-                                                        send_data(&tx, &data.to_string()).await;
+                                                        send_responses_event(
+                                                            &tx,
+                                                            &mut responses_sequence_number,
+                                                            data,
+                                                        )
+                                                        .await;
                                                     }
                                                 }
                                             }
@@ -3231,7 +3251,12 @@ fn stream_proxy_response(
                                                             responses_sequence_number,
                                                         );
                                                         responses_sequence_number += 1;
-                                                        send_data(&tx, &data.to_string()).await;
+                                                        send_responses_event(
+                                                            &tx,
+                                                            &mut responses_sequence_number,
+                                                            data,
+                                                        )
+                                                        .await;
                                                     }
                                                 }
                                                 ResponseFormat::OpenAI => {
@@ -3331,14 +3356,14 @@ fn stream_proxy_response(
                         &response_id,
                         &output_text.text,
                     );
-                    send_data(&tx, &text_done.to_string()).await;
+                    send_responses_event(&tx, &mut responses_sequence_number, text_done).await;
                 }
                 if !aggregated.thinking.is_empty() {
                     let reasoning_done = build_stream_responses_reasoning_done_event(
                         &response_id,
                         &aggregated.thinking,
                     );
-                    send_data(&tx, &reasoning_done.to_string()).await;
+                    send_responses_event(&tx, &mut responses_sequence_number, reasoning_done).await;
                 }
                 let content = build_responses_message_content(&aggregated, &server_tool_calls);
                 let output_item_done = json!({
@@ -3353,7 +3378,7 @@ fn stream_proxy_response(
                         "content": content
                     }
                 });
-                send_data(&tx, &output_item_done.to_string()).await;
+                send_responses_event(&tx, &mut responses_sequence_number, output_item_done).await;
 
                 let completed = build_stream_responses_completed_event(
                     &model,
@@ -3364,7 +3389,7 @@ fn stream_proxy_response(
                     created_at,
                     previous_response_id.as_deref(),
                 );
-                send_data(&tx, &completed.to_string()).await;
+                send_responses_event(&tx, &mut responses_sequence_number, completed).await;
                 persist_responses_session_entry(
                     &state,
                     &response_id,
@@ -3649,6 +3674,18 @@ async fn send_event(
 
 async fn send_data(tx: &mpsc::Sender<Result<Bytes, Infallible>>, payload: &str) -> bool {
     send_event(tx, None, payload).await
+}
+
+async fn send_responses_event(
+    tx: &mpsc::Sender<Result<Bytes, Infallible>>,
+    sequence_number: &mut usize,
+    mut payload: Value,
+) -> bool {
+    if payload.get("sequence_number").is_none() {
+        payload["sequence_number"] = json!(*sequence_number);
+        *sequence_number += 1;
+    }
+    send_data(tx, &payload.to_string()).await
 }
 
 #[cfg(test)]
