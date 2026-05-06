@@ -1054,13 +1054,24 @@ fn build_user_context(
     tool_choice: Option<Value>,
     tool_results: Vec<KiroToolResult>,
 ) -> Option<UserInputMessageContext> {
-    if tools.is_none() && tool_choice.is_none() && tool_results.is_empty() {
+    let has_tools = tools
+        .as_ref()
+        .map(|items| !items.is_empty())
+        .unwrap_or(false);
+    let has_tool_results = !tool_results.is_empty();
+    let effective_tool_choice = if has_tools || has_tool_results {
+        tool_choice
+    } else {
+        None
+    };
+
+    if !has_tools && effective_tool_choice.is_none() && !has_tool_results {
         return None;
     }
 
     Some(UserInputMessageContext {
         tools,
-        tool_choice,
+        tool_choice: effective_tool_choice,
         tool_results: if tool_results.is_empty() {
             None
         } else {

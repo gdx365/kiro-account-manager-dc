@@ -249,6 +249,11 @@ fn handle_deep_link_event(app_handle: &tauri::AppHandle, payload: &str) {
 
 /// 搴旂敤 setup 鍥炶皟
 fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    // Clear gateway debug/request logs on every app startup for clean test runs.
+    if let Err(err) = gateway::clear_gateway_request_logs() {
+        log::warn!("Failed to clear gateway request logs on startup: {err}");
+    }
+
     #[cfg(windows)]
     if let Err(err) = ensure_windows_protocol_association() {
         log::warn!("Failed to repair deep-link protocol association: {err}");
