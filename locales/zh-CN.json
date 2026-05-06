@@ -7,7 +7,6 @@
   "nav.settings": "设置",
   "nav.gateway": "Kiro API 网关",
   "nav.about": "关于",
-
   "gateway.overview": "总览",
   "gateway.integration": "接入",
   "gateway.observability": "观测",
@@ -15,7 +14,6 @@
   "nav.kiroConnected": "Kiro IDE 已连接",
   "nav.collapseSidebar": "双击折叠侧边栏",
   "nav.expandSidebar": "双击展开侧边栏",
-
   "home.title": "Kiro Account Manager",
   "home.subtitle": "管理你的 Kiro IDE 账号，智能切换，配额监控",
   "home.totalAccounts": "总账号数",
@@ -51,7 +49,6 @@
   "home.unknown": "未知",
   "home.loadFailed": "加载失败",
   "home.loadDataFailed": "加载数据失败",
-
   "stats.usageDistribution": "使用率分布",
   "stats.lowUsage": "低使用率",
   "stats.mediumUsage": "中使用率",
@@ -61,7 +58,6 @@
   "stats.quotaDistribution": "配额分布",
   "stats.usageTrend": "使用量趋势",
   "stats.totalUsed": "已用量",
-
   "settings.title": "Kiro 设置",
   "settings.subtitle": "配置 Kiro IDE 的模型、代理等设置，修改后即时生效",
   "settings.general": "通用",
@@ -97,10 +93,7 @@
   "settings.autoRefreshInterval": "刷新间隔",
   "settings.autoChangeMachineId": "切换时更换机器码",
   "settings.autoChangeMachineIdDesc": "切换账号时自动重置 Kiro IDE 的机器 ID，避免多账号关联",
-  "settings.machineIdMode": "切换账号时机器码",
   "settings.machineIdNone": "不更换",
-  "settings.machineIdRandom": "随机更换",
-  "settings.machineIdBind": "绑定更换",
   "settings.browser": "浏览器设置",
   "settings.browserDesc": "配置 OAuth 登录时使用的浏览器（默认无痕模式）",
   "settings.browserPath": "浏览器路径",
@@ -252,7 +245,6 @@
   "settings.autoSwitchDesc": "当前账号余额低于阈值时，自动切换到其他可用账号",
   "settings.autoSwitchThreshold": "阈值 ≤",
   "settings.autoSwitchInterval": "检查间隔",
-
   "accounts.title": "账号管理",
   "accounts.subtitle": "管理你的 Kiro IDE 账号",
   "accounts.search": "搜索账号...",
@@ -302,7 +294,6 @@
   "accounts.cardView": "卡片视图",
   "accounts.tableView": "列表视图",
   "accounts.redeem": "卡密兑换",
-
   "login.title": "桌面授权登录",
   "login.subtitle": "选择登录方式",
   "login.google": "Google",
@@ -335,7 +326,6 @@
   "login.waitingMessage": "正在等待您在浏览器中完成 {{provider}} 授权...",
   "login.waitingHint": "如果浏览器未自动打开，请手动打开授权页面。",
   "login.waitingCloseHint": "点击取消会终止当前登录流程，之后可以重新发起登录。",
-
   "about.title": "关于",
   "about.appName": "Kiro Account Manager",
   "about.appDesc": "智能管理 Kiro 访问令牌，一键切换，配额监控",
@@ -373,7 +363,6 @@
   "about.contactQQ": "联系 QQ",
   "about.madeWith": "Made with",
   "about.by": "by",
-
   "kiroConfig.title": "规则管理",
   "kiroConfig.subtitle": "管理 Kiro IDE 的 MCP 服务、Steering 规则、Skills、Hooks、Custom Agents 和 Powers",
   "kiroConfig.mcp": "MCP 服务",
@@ -382,14 +371,12 @@
   "kiroConfig.hooks": "Hooks",
   "kiroConfig.agents": "Agents",
   "kiroConfig.powers": "Powers",
-
   "kiroConfig.selectProjectDir": "选择项目目录",
   "kiroConfig.noProjectDir": "未选择项目",
   "kiroConfig.clearProjectDir": "清除项目目录",
   "kiroConfig.scope": "存储位置",
   "kiroConfig.scopeUser": "用户级 (~/.kiro/)",
   "kiroConfig.scopeProject": "项目级 (<project>/.kiro/)",
-
   "mcp.title": "MCP 服务",
   "mcp.add": "添加服务",
   "mcp.edit": "编辑",
@@ -402,16 +389,13 @@
   "mcp.command": "命令",
   "mcp.args": "参数",
   "mcp.env": "环境变量",
-
   "mcp.addFirst": "点击「添加服务」开始配置",
-
   "mcp.deleteSuccess": "删除成功",
   "mcp.deleteFailed": "删除失败",
   "mcp.saveSuccess": "保存成功",
   "mcp.saveFailed": "保存失败",
   "mcp.templates": "模板",
   "mcp.useTemplate": "使用模板",
-
   "common.save": "保存",
   "common.cancel": "取消",
   "common.optional": "可选",
@@ -437,7 +421,6 @@
   "common.finish": "完成",
   "common.search": "搜索",
   "common.clear": "清空",
-
   "common.sort": "排序",
   "sort.usage": "使用量",
   "sort.added": "添加时间",
@@ -470,7 +453,6 @@
   "common.addAccount": "添加账号",
   "common.selectAll": "全选",
   "common.selected": "已选",
-
   "update.newVersion": "发现新版本",
   "update.newVersionFound": "发现新版本",
   "update.newVersionAvailable": "发现新版本",
@@ -487,7 +469,6 @@
   "update.restartToInstall": "更新已下载完成，点击下方按钮重启应用以完成安装。",
   "update.installLater": "稍后安装",
   "update.restartNow": "立即重启",
-
   "addAccount.title": "手动添加",
   "addAccount.subtitle": "手动添加新账号到管理器",
   "addAccount.saveLocal": "保存本地账号",
@@ -507,7 +488,6 @@
   "addAccount.errorNoClientId": "请输入 Client ID 和 Client Secret",
   "addAccount.machineId": "机器码",
   "addAccount.machineIdPlaceholder": "留空自动生成",
-
   "import.title": "批量导入账号",
   "import.subtitle": "支持 JSON 文件、从 Kiro IDE 导入和从 kiro-cli 导入",
   "import.jsonTab": "JSON 凭证导入",
@@ -552,7 +532,6 @@
   "import.kiroCliPathHintDetected": "已自动检测到数据库路径",
   "import.kiroCliPathHintManual": "请手动输入或浏览选择数据库文件",
   "import.browse": "浏览",
-
   "editAccount.title": "编辑账号",
   "editAccount.labelPlaceholder": "输入备注，方便识别账号",
   "editAccount.tokenCredentials": "Token 凭证",
@@ -565,7 +544,6 @@
   "editAccount.profileArn": "Profile ARN",
   "editAccount.saveFailed": "保存失败",
   "editAccount.verifyFailed": "验证失败",
-
   "accountCard.switchAccount": "切换账号",
   "accountCard.refresh": "刷新数据",
   "accountCard.refreshQuota": "刷新配额",
@@ -593,12 +571,10 @@
   "accountCard.promptCaching": "缓存",
   "accountCard.refreshModels": "刷新模型",
   "accountCard.cachedAt": "缓存时间",
-
   "refresh.title": "刷新账号",
   "refresh.progress": "进度",
   "refresh.refreshing": "正在刷新",
   "refresh.complete": "刷新完成！",
-
   "detail.quotaOverview": "配额总览",
   "detail.syncQuota": "同步配额",
   "detail.mainQuota": "主配额",
@@ -633,7 +609,6 @@
   "detail.loadingModels": "加载模型中...",
   "detail.noModels": "暂无可用模型",
   "detail.noDescription": "无描述",
-
   "mcpManager.title": "MCP 服务",
   "mcpManager.subtitle": "管理 Kiro IDE 的 MCP 服务配置",
   "mcpManager.addServer": "添加服务",
@@ -647,7 +622,6 @@
   "mcpManager.tools": "个工具",
   "mcpManager.envVars": "个环境变量",
   "mcpManager.quickAdd": "快速添加",
-
   "mcpManager.serverNamePlaceholder": "例如: fetch",
   "mcpManager.command": "启动命令",
   "mcpManager.commandPlaceholder": "例如: uvx, npx",
@@ -656,17 +630,14 @@
   "mcpManager.autoApproveTools": "自动批准工具（每行一个）",
   "mcpManager.errorNoName": "请输入服务名称",
   "mcpManager.errorNoCommand": "请输入启动命令",
-
   "common.details": "详情",
   "common.saving": "保存中...",
-
   "pagination.perPage": "每页",
   "pagination.totalItems": "条，共 {{count}} 条",
   "pagination.first": "首页",
   "pagination.prev": "上一页",
   "pagination.next": "下一页",
   "pagination.last": "末页",
-
   "switch.title": "切换账号",
   "switch.confirmSwitch": "确定切换到",
   "switch.confirmBtn": "确定切换",
@@ -684,10 +655,8 @@
   "detail.aoaPrefix": "aoa 开头",
   "detail.aorPrefix": "aor 开头",
   "detail.eyjPrefix": "eyJ 开头",
-
   "import.socialTemplate": "Social 模板",
   "import.idcTemplate": "IdC 模板",
-
   "theme.light": "雅致白",
   "theme.dark": "极致黑",
   "theme.dark-one": "深邃蓝 (One Dark)",
@@ -702,10 +671,8 @@
   "theme.rose": "玫瑰红",
   "theme.aurora": "极光青",
   "theme.sakura": "樱花粉",
-
   "common.paste": "粘贴",
   "common.refreshFailed": "刷新失败",
-
   "steering.title": "Steering 规则",
   "steering.noFiles": "暂无 Steering 文件",
   "steering.selectToEdit": "选择一个文件进行编辑",
@@ -751,7 +718,6 @@
   "steering.initialCreated": "项目规则已初始化",
   "steering.scopeTitle": "Steering 作用域",
   "steering.scopeMessage": "确认写入当前项目规则？选择“用户”则保存到全局规则目录。",
-
   "skills.noSkills": "暂无 Skills",
   "skills.noSkillsHint": "Skills 存储在 ~/.kiro/skills/ 目录",
   "skills.createFirst": "创建第一个 Skill",
@@ -792,7 +758,6 @@
   "skills.githubBranch": "分支",
   "skills.importTargetName": "目标名称",
   "skills.importTargetNamePlaceholder": "可选，默认使用目录名",
-
   "hooks.title": "Hooks",
   "hooks.noHooks": "暂无 Hook 文件",
   "hooks.createFirst": "创建第一个 Hook",
@@ -817,9 +782,7 @@
   "hooks.saving": "保存中...",
   "hooks.save": "保存",
   "hooks.contentPlaceholder": "输入 .kiro.hook JSON 内容...",
-
   "agents.noAgents": "暂无 Custom Agents",
-
   "agents.createFirst": "创建第一个 Agent",
   "agents.create": "新建 Agent",
   "agents.newAgent": "新建 Custom Agent",
@@ -850,7 +813,6 @@
   "agents.includePowers": "包含 Powers",
   "agents.allTools": "全部工具",
   "agents.includeMcpJsonDesc": "自动注入 mcp.json 中定义的服务器",
-
   "callback.processing": "正在处理登录回调...",
   "callback.missingParams": "缺少必要的回调参数",
   "callback.exchangingToken": "正在交换访问令牌...",
@@ -861,7 +823,6 @@
   "callback.processingTitle": "处理中...",
   "callback.autoCloseHint": "此窗口将自动关闭，或您可以手动关闭",
   "callback.closeWindow": "关闭窗口",
-
   "tags.title": "标签",
   "tags.filter": "按标签筛选",
   "tags.all": "全部标签",
@@ -887,7 +848,6 @@
   "tags.searchOrCreate": "搜索或输入新标签...",
   "tags.hint": "输入搜索已有标签，或直接输入创建新标签",
   "tags.hasTags": "有标签",
-
   "groups.title": "分组",
   "groups.all": "全部分组",
   "groups.noGroup": "无分组",
@@ -898,7 +858,6 @@
   "groups.deleteGroup": "删除分组",
   "groups.confirmDelete": "确定删除分组",
   "groups.duplicateName": "分组名已存在",
-
   "filter.title": "高级筛选",
   "filter.clearAll": "清除全部",
   "filter.subscription": "订阅类型",
@@ -908,7 +867,6 @@
   "filter.status_normal": "正常",
   "filter.status_banned": "已封禁",
   "filter.status_expired": "已过期",
-
   "announcement.title": "重要提示",
   "announcement.warning": "本软件完全免费！",
   "announcement.content1": "如果有人向你收费出售此软件，你被骗了！请立即举报。",
@@ -918,13 +876,11 @@
   "announcement.qqGroup": "开源交流群：",
   "announcement.dontRemind": "不再提醒",
   "announcement.understand": "我已知晓",
-
   "redeem.success": "兑换成功",
   "redeem.desc": "输入购买的卡密，自动添加账号到列表",
   "redeem.placeholder": "请输入卡密",
   "redeem.account": "账号",
   "redeem.submit": "兑换",
-
   "powers.noPowers": "暂无已安装的 Powers",
   "powers.noPowersHint": "Powers 存储在 ~/.kiro/powers/installed/ 目录",
   "powers.selectToView": "选择一个 Power 查看详情",

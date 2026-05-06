@@ -120,9 +120,19 @@ export function useSwitchAccount(onLocalTokenChange) {
       refreshedAccount = await applyMachineGuid(refreshedAccount, settings)
       
       if (switchTarget === 'cli') {
-        // CLI 切号
-        const payload = await invoke('build_cli_switch_payload', { account: refreshedAccount })
-        await invoke('switch_to_cli_account', { payload })
+        // CLI 切号（与 Rust 命令签名对齐）
+        const dbPath = await invoke<string>('get_kiro_cli_default_path')
+        if (!dbPath) {
+          setSwitchDialog({
+            type: 'error',
+            title: t('switch.cliNotInstalled'),
+            message: t('switch.cliNotInstalledMessage'),
+            account: null
+          })
+          setSwitchingId(null)
+          return
+        }
+        await invoke('switch_to_cli_account', { accountId: refreshedAccount.id, dbPath })
       } else {
         // IDE 切号
         const params = buildSwitchParams(refreshedAccount)

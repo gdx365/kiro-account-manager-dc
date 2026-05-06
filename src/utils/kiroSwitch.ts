@@ -2,34 +2,10 @@ import { invoke } from '@tauri-apps/api/core'
 
 export async function applyMachineGuid(account, settings = {}) {
   const autoChangeMachineId = settings.autoChangeMachineId !== false
-  const bindMachineIdToAccount = settings.bindMachineIdToAccount !== false
 
   if (!autoChangeMachineId) return account
 
   try {
-    if (bindMachineIdToAccount) {
-      let machineId = account.machineId
-
-      if (!machineId) {
-        machineId = await invoke('generate_machine_guid')
-        await invoke('update_account', {
-          params: {
-            id: account.id,
-            label: null,
-            status: null,
-            accessToken: null,
-            refreshToken: null,
-            clientId: null,
-            clientSecret: null,
-            machineId,
-          }
-        })
-        return await setCustomMachineGuid(account, machineId)
-      }
-
-      return await setCustomMachineGuid(account, machineId)
-    }
-
     const newMachineId = await invoke('generate_machine_guid')
     await invoke('set_custom_machine_guid', { newGuid: newMachineId })
   } catch {
@@ -38,12 +14,6 @@ export async function applyMachineGuid(account, settings = {}) {
 
   return account
 }
-
-async function setCustomMachineGuid(account, machineId) {
-  await invoke('set_custom_machine_guid', { newGuid: machineId })
-  return { ...account, machineId }
-}
-
 export function buildSwitchParams(account) {
   const isIdC = account.provider === 'BuilderId' || account.provider === 'Enterprise' || account.clientIdHash
   const authMethod = isIdC ? 'IdC' : 'social'

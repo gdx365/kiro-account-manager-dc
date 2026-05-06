@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+﻿import { useState, useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen, emit, UnlistenFn } from '@tauri-apps/api/event'
 import { isUnavailableStatus } from '../../../../utils/accountStatus'
@@ -32,7 +32,7 @@ export function useAccounts() {
   const [refreshingId, setRefreshingId] = useState<string | null>(null)
   const refreshTimerRef = useRef<NodeJS.Timeout | null>(null)
 
-  // 判断账号是否即将过期（5分钟内）
+  // 判断账号是否即将过期（5 分钟内）
   const isExpiringSoon = useCallback((account: Account) => {
     if (isUnavailableStatus(account)) return false
     if (!account.expiresAt) return false
@@ -54,13 +54,13 @@ export function useAccounts() {
         : []
       setAccounts(normalizedAccounts)
     } catch (e) {
-      // 错误处理
+      // 閿欒澶勭悊
     } finally {
       setLoading(false)
     }
   }, [])
 
-  // 批量刷新账号
+  // 鎵归噺鍒锋柊璐﹀彿
   const batchRefreshAccounts = useCallback(async (accountIds: string[], accountList: Account[]) => {
     if (autoRefreshing || accountList.length === 0) return
     
@@ -82,7 +82,8 @@ export function useAccounts() {
     let completed = 0
 
     const refreshOne = async (account: Account) => {
-      let success = false, message = ''
+      let success = false
+      let message = ''
       try {
         const syncResult = await invoke<{ account: any }>('sync_account', { id: account.id })
         const updated = normalizeAccountForUi(syncResult.account)
@@ -263,3 +264,4 @@ export function useAccounts() {
     handleRefreshStatus,
     handleExport}
 }
+

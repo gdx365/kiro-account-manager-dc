@@ -29,7 +29,6 @@ function Settings() {
     const [autoRefresh, setAutoRefresh] = useState(true)
     const [autoRefreshInterval, setAutoRefreshInterval] = useState(50) // 分钟
     const [autoChangeMachineId, setAutoChangeMachineId] = useState(true) // 默认开启
-    const [machineIdMode, setMachineIdMode] = useState<'random' | 'bind'>('bind') // 'random' | 'bind'
     const [httpProxy, setHttpProxy] = useState('')
     const [originalProxy, setOriginalProxy] = useState('') // 原始代理值，用于判断是否修改
     const [savingProxy, setSavingProxy] = useState(false)
@@ -142,7 +141,6 @@ function Settings() {
                 setAutoRefresh(appSettings.autoRefresh ?? true)
                 setAutoRefreshInterval(appSettings.autoRefreshInterval ?? 50)
                 setAutoChangeMachineId(appSettings.autoChangeMachineId !== false) // 默认 true
-                setMachineIdMode(appSettings.bindMachineIdToAccount !== false ? 'bind' : 'random')
                 const browser = appSettings.browserPath || ''
                 setBrowserPath(browser)
                 setOriginalBrowserPath(browser)
@@ -232,11 +230,6 @@ function Settings() {
     const handleAutoChangeMachineIdChange = async (checked: boolean) => {
         setAutoChangeMachineId(checked)
         await saveAppSettings({ autoChangeMachineId: checked })
-    }
-
-    const handleMachineIdModeChange = async (mode: 'bind' | 'random') => {
-        setMachineIdMode(mode)
-        await saveAppSettings({ bindMachineIdToAccount: mode === 'bind' })
     }
 
     const handleAutoSwitchEnabledChange = async (checked: boolean) => {
@@ -508,7 +501,6 @@ function Settings() {
                             autoRefresh={autoRefresh}
                             autoRefreshInterval={autoRefreshInterval}
                             autoChangeMachineId={autoChangeMachineId}
-                            machineIdMode={machineIdMode}
                             privacyMode={privacyMode}
                             setPrivacyMode={setPrivacyMode}
                             autoSwitchEnabled={autoSwitchEnabled}
@@ -535,7 +527,6 @@ function Settings() {
                             handleAutoRefreshChange={handleAutoRefreshChange}
                             handleAutoRefreshIntervalChange={handleAutoRefreshIntervalChange}
                             handleAutoChangeMachineIdChange={handleAutoChangeMachineIdChange}
-                            handleMachineIdModeChange={handleMachineIdModeChange}
                             handleAutoSwitchEnabledChange={handleAutoSwitchEnabledChange}
                             handleAutoSwitchThresholdChange={handleAutoSwitchThresholdChange}
                             handleAutoSwitchIntervalChange={handleAutoSwitchIntervalChange}
