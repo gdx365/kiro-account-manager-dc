@@ -2978,16 +2978,7 @@ fn stream_proxy_response(
                                         }
                                         KiroEvent::ContextUsage { percentage } => {
                                             aggregated.context_usage_percentage = Some(percentage);
-                                            if matches!(format, ResponseFormat::Anthropic) {
-                                                let data =
-                                                    json!({"type":"context_usage","percentage":percentage});
-                                                send_event(
-                                                    &tx,
-                                                    Some("context_usage"),
-                                                    &data.to_string(),
-                                                )
-                                                .await;
-                                            }
+                                            let _ = percentage;
                                         }
                                         KiroEvent::Thinking(text) => {
                                             aggregated.thinking.push_str(&text);
