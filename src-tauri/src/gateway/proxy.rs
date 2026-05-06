@@ -740,6 +740,7 @@ pub async fn proxy_handler(
     payload: Value,
     format: ResponseFormat,
 ) -> Response {
+    let emit_context_usage_for_anthropic = is_claude_code_client(&headers);
     let request_index = state
         .request_count
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1085,6 +1086,7 @@ pub async fn proxy_handler(
             state.clone(),
             upstream_resp,
             format,
+            emit_context_usage_for_anthropic,
             request.model.clone(),
             incoming_request.messages.clone(),
             request.tools.clone(),
@@ -2531,11 +2533,20 @@ fn apply_usage_fallback_for_responses(
         .iter()
         .map(|message| extract_plain_text(message.content.as_ref()).chars().count())
         .sum();
-    let output_chars = aggregated.text.chars().count();
+    let output_chars =
+        aggregated.text.chars().count().saturating_add(aggregated.thinking.chars().count());
 
     // Keep a conservative non-zero estimate when upstream does not provide usage events.
     aggregated.input_tokens = ((request_chars as i32) / 4).max(1);
     aggregated.output_tokens = ((output_chars as i32) / 4).max(1);
+}
+
+fn estimate_request_input_tokens(request_messages: &[NormalizedMessage]) -> i32 {
+    let request_chars: usize = request_messages
+        .iter()
+        .map(|message| extract_plain_text(message.content.as_ref()).chars().count())
+        .sum();
+    ((request_chars as i32) / 4).max(1)
 }
 
 #[allow(dead_code)]
@@ -2808,10 +2819,28 @@ fn short_uuid() -> String {
     uuid::Uuid::new_v4().to_string().replace('-', "")
 }
 
+fn is_claude_code_client(headers: &HeaderMap) -> bool {
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let billing_header = headers
+        .get("x-anthropic-billing-header")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    user_agent.contains("claude")
+        || billing_header.contains("claude-vscode")
+        || billing_header.contains("claude-code")
+}
+
 fn stream_proxy_response(
     state: RouterState,
     upstream_resp: reqwest::Response,
     format: ResponseFormat,
+    emit_context_usage_for_anthropic: bool,
     model: String,
     request_messages: Vec<NormalizedMessage>,
     request_tools: Option<Vec<Tool>>,
@@ -2834,7 +2863,7 @@ fn stream_proxy_response(
         let mut thinking_block_index: Option<usize> = None;
         let mut tool_block_indexes: HashMap<String, usize> = HashMap::new();
         let mut saw_tool_calls = false;
-        let mut input_tokens = 0i32;
+        let mut input_tokens = estimate_request_input_tokens(&request_messages);
         let mut output_tokens = 0i32;
         let anthropic_id = format!("msg_{}", short_uuid());
         let response_id = format!("resp_{}", short_uuid());
@@ -3023,7 +3052,20 @@ fn stream_proxy_response(
                                         }
                                         KiroEvent::ContextUsage { percentage } => {
                                             aggregated.context_usage_percentage = Some(percentage);
-                                            let _ = percentage;
+                                            if emit_context_usage_for_anthropic
+                                                && matches!(format, ResponseFormat::Anthropic)
+                                            {
+                                                let data = json!({
+                                                    "type":"context_usage",
+                                                    "percentage":percentage
+                                                });
+                                                send_event(
+                                                    &tx,
+                                                    Some("context_usage"),
+                                                    &data.to_string(),
+                                                )
+                                                .await;
+                                            }
                                         }
                                         KiroEvent::Thinking(text) => {
                                             aggregated.thinking.push_str(&text);
@@ -3397,6 +3439,8 @@ fn stream_proxy_response(
         }
         aggregated.tool_calls = stream::deduplicate_tool_calls(aggregated.tool_calls);
         apply_usage_fallback_for_responses(&mut aggregated, &request_messages);
+        input_tokens = aggregated.input_tokens;
+        output_tokens = aggregated.output_tokens;
 
         match format {
             ResponseFormat::Anthropic => {
