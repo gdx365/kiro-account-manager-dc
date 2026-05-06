@@ -274,6 +274,41 @@ fn sanitize_messages_for_compaction(messages: &[NormalizedMessage]) -> Vec<Norma
         .collect()
 }
 
+fn extract_compaction_text(content: &Option<Value>) -> String {
+    match content {
+        None => String::new(),
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Array(items)) => {
+            let mut parts = Vec::new();
+            for item in items {
+                if let Some(text) = item.get("text").and_then(Value::as_str) {
+                    if !text.trim().is_empty() {
+                        parts.push(text.to_string());
+                    }
+                }
+            }
+            parts.join("\n")
+        }
+        Some(other) => other.to_string(),
+    }
+}
+
+fn sanitize_messages_for_anthropic_compaction(
+    messages: &[NormalizedMessage],
+) -> Vec<NormalizedMessage> {
+    messages
+        .iter()
+        .filter(|message| matches!(message.role.as_str(), "system" | "user" | "assistant"))
+        .map(|message| NormalizedMessage {
+            role: message.role.clone(),
+            content: Some(Value::String(extract_compaction_text(&message.content))),
+            tool_calls: None,
+            tool_call_id: None,
+            metadata: None,
+        })
+        .collect()
+}
+
 async fn infer_responses_upstream_conversation_id(
     state: &RouterState,
     request: &NormalizedRequest,
@@ -834,12 +869,22 @@ pub async fn proxy_handler(
         resumed
     } else {
         let mut passthrough = incoming_request.clone();
-        if matches!(format, ResponseFormat::OpenAI)
-            && looks_like_context_compaction_request(&incoming_request)
-        {
-            passthrough.messages = sanitize_messages_for_compaction(&incoming_request.messages);
-            passthrough.tools = None;
-            passthrough.tool_choice = None;
+        if looks_like_context_compaction_request(&incoming_request) {
+            match format {
+                ResponseFormat::Anthropic => {
+                    passthrough.messages =
+                        sanitize_messages_for_anthropic_compaction(&incoming_request.messages);
+                    passthrough.tools = None;
+                    passthrough.tool_choice = None;
+                }
+                ResponseFormat::OpenAI => {
+                    passthrough.messages =
+                        sanitize_messages_for_compaction(&incoming_request.messages);
+                    passthrough.tools = None;
+                    passthrough.tool_choice = None;
+                }
+                ResponseFormat::Responses => {}
+            }
         }
         passthrough
     };
