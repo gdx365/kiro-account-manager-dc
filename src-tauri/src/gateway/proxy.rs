@@ -2416,14 +2416,6 @@ fn build_responses_message_content(
             "summary": aggregated.thinking
         }));
     }
-    for (id, name, arguments) in &aggregated.tool_calls {
-        content.push(json!({
-            "type": "function_call",
-            "call_id": id,
-            "name": name,
-            "arguments": arguments
-        }));
-    }
     content
 }
 
@@ -2456,21 +2448,16 @@ fn build_responses_response_with_ids(
 ) -> Value {
     let output_text = build_responses_output_text(aggregated, server_tool_calls);
     let content = build_responses_message_content(aggregated, server_tool_calls);
+    let include_assistant_message = !content.is_empty() || aggregated.tool_calls.is_empty();
 
     let mut output: Vec<Value> = server_tool_calls
         .iter()
         .filter(|call| call.name == "web_search")
         .map(build_responses_web_search_call)
         .collect();
-    output.push(json!({
-        "id": message_id,
-        "type": "message",
-        "role": "assistant",
-        "content": content
-    }));
     output.extend(aggregated.tool_calls.iter().map(|(id, name, arguments)| {
         json!({
-            "id": id,
+            "id": format!("fc_{id}"),
             "type": "function_call",
             "status": "completed",
             "call_id": id,
@@ -2478,6 +2465,14 @@ fn build_responses_response_with_ids(
             "arguments": arguments
         })
     }));
+    if include_assistant_message {
+        output.push(json!({
+            "id": message_id,
+            "type": "message",
+            "role": "assistant",
+            "content": content
+        }));
+    }
 
     json!({
         "id": response_id,
@@ -2731,6 +2726,7 @@ fn stream_proxy_response(
         let mut responses_sequence_number = 0usize;
         let mut responses_next_output_index = 1usize;
         let mut responses_tool_output_indexes: HashMap<String, usize> = HashMap::new();
+        let mut responses_tool_item_ids: HashMap<String, String> = HashMap::new();
         let mut responses_tool_added_emitted: HashSet<String> = HashSet::new();
         let mut responses_tool_done_emitted: HashSet<String> = HashSet::new();
         let mut stream_failed = false;
@@ -3010,6 +3006,9 @@ fn stream_proxy_response(
                                                     if responses_tool_added_emitted
                                                         .insert(id.clone())
                                                     {
+                                                        let item_id = format!("fc_{id}");
+                                                        responses_tool_item_ids
+                                                            .insert(id.clone(), item_id.clone());
                                                         let output_index = responses_next_output_index;
                                                         responses_next_output_index += 1;
                                                         responses_tool_output_indexes
@@ -3019,7 +3018,7 @@ fn stream_proxy_response(
                                                             "response_id": response_id,
                                                             "output_index": output_index,
                                                             "item": {
-                                                                "id": id,
+                                                                "id": item_id,
                                                                 "type": "function_call",
                                                                 "status": "in_progress",
                                                                 "call_id": id,
@@ -3078,10 +3077,14 @@ fn stream_proxy_response(
                                                             .get(&id)
                                                             .copied()
                                                     {
+                                                        let item_id = responses_tool_item_ids
+                                                            .get(&id)
+                                                            .cloned()
+                                                            .unwrap_or_else(|| format!("fc_{id}"));
                                                         let data = json!({
                                                             "type": "response.function_call_arguments.delta",
                                                             "response_id": response_id,
-                                                            "item_id": id,
+                                                            "item_id": item_id,
                                                             "output_index": output_index,
                                                             "call_id": id,
                                                             "delta": input_delta
@@ -3136,9 +3139,12 @@ fn stream_proxy_response(
                                                                 responses_next_output_index += 1;
                                                                 idx
                                                             });
+                                                        let item_id = responses_tool_item_ids
+                                                            .remove(&id)
+                                                            .unwrap_or_else(|| format!("fc_{id}"));
                                                         let done_args = build_stream_responses_function_call_arguments_done_event(
                                                             &response_id,
-                                                            &id,
+                                                            &item_id,
                                                             output_index,
                                                             &id,
                                                             &input,
@@ -3154,7 +3160,7 @@ fn stream_proxy_response(
                                                             "response_id": response_id,
                                                             "output_index": output_index,
                                                             "item": {
-                                                                "id": id,
+                                                                "id": item_id,
                                                                 "type": "function_call",
                                                                 "status": "completed",
                                                                 "call_id": id,
@@ -3366,19 +3372,23 @@ fn stream_proxy_response(
                     send_responses_event(&tx, &mut responses_sequence_number, reasoning_done).await;
                 }
                 let content = build_responses_message_content(&aggregated, &server_tool_calls);
-                let output_item_done = json!({
-                    "type": "response.output_item.done",
-                    "response_id": response_id,
-                    "output_index": 0,
-                    "item": {
-                        "id": message_id,
-                        "type": "message",
-                        "status": "completed",
-                        "role": "assistant",
-                        "content": content
-                    }
-                });
-                send_responses_event(&tx, &mut responses_sequence_number, output_item_done).await;
+                let include_assistant_message =
+                    !content.is_empty() || aggregated.tool_calls.is_empty();
+                if include_assistant_message {
+                    let output_item_done = json!({
+                        "type": "response.output_item.done",
+                        "response_id": response_id,
+                        "output_index": 0,
+                        "item": {
+                            "id": message_id,
+                            "type": "message",
+                            "status": "completed",
+                            "role": "assistant",
+                            "content": content
+                        }
+                    });
+                    send_responses_event(&tx, &mut responses_sequence_number, output_item_done).await;
+                }
 
                 let completed = build_stream_responses_completed_event(
                     &model,
