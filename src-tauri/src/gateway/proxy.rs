@@ -348,6 +348,40 @@ async fn infer_responses_upstream_conversation_id(
     best_match.map(|(_, conversation_id)| conversation_id)
 }
 
+fn conversation_cache_key(client_addr: SocketAddr, model: &str, format: ResponseFormat) -> String {
+    let endpoint = match format {
+        ResponseFormat::Anthropic => "messages",
+        ResponseFormat::OpenAI => "chat/completions",
+        ResponseFormat::Responses => "responses",
+    };
+    format!("{}|{}|{}", endpoint, client_addr.ip(), model.trim().to_ascii_lowercase())
+}
+
+async fn read_cached_upstream_conversation_id(
+    state: &RouterState,
+    client_addr: SocketAddr,
+    model: &str,
+    format: ResponseFormat,
+) -> Option<String> {
+    let key = conversation_cache_key(client_addr, model, format);
+    state.upstream_conversations.lock().await.get(&key).cloned()
+}
+
+async fn write_cached_upstream_conversation_id(
+    state: &RouterState,
+    client_addr: SocketAddr,
+    model: &str,
+    format: ResponseFormat,
+    conversation_id: &str,
+) {
+    let key = conversation_cache_key(client_addr, model, format);
+    state
+        .upstream_conversations
+        .lock()
+        .await
+        .insert(key, conversation_id.to_string());
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct ResponsesOutputText {
     text: String,
@@ -606,8 +640,7 @@ fn write_request_log(
         outcome: outcome.to_string(),
         duration_ms,
         error: error.map(str::to_string),
-        // Security default: do not persist request bodies unless explicitly enabled.
-        request_body: None,
+        request_body: truncate_log_body(context.request_body),
         response_body: truncate_log_body(response_body),
     };
     let _ = append_gateway_request_log(&entry);
@@ -887,6 +920,16 @@ pub async fn proxy_handler(
                 }
                 ResponseFormat::Responses => {}
             }
+        } else if extract_tool_result_ids_from_request(&incoming_request).len() > 0
+            || incoming_request.messages.len() > 1
+        {
+            resolved_upstream_conversation_id = read_cached_upstream_conversation_id(
+                &state,
+                client_addr,
+                &incoming_request.model,
+                format,
+            )
+            .await;
         }
         passthrough
     };
@@ -1024,58 +1067,118 @@ pub async fn proxy_handler(
         return Json(response).into_response();
     }
 
-    let mut upstream_payload =
-        match build_kiro_payload(&state.http, &request, upstream.profile_arn.clone()).await {
-            Ok(payload) => payload,
-            Err(message) => {
-                let sanitized = sanitize_error(&message);
+    let mut request_for_upstream = request.clone();
+    let mut tried_model_fallback = false;
+    let mut upstream_conversation_id: Option<String> = None;
+    let mut upstream_request_body_owned = String::new();
+    let mut sent_request_messages = request_for_upstream.messages.clone();
+    let upstream_resp = loop {
+        let mut upstream_payload =
+            match build_kiro_payload(&state.http, &request_for_upstream, upstream.profile_arn.clone()).await {
+                Ok(payload) => payload,
+                Err(message) => {
+                    let sanitized = sanitize_error(&message);
+                    return gateway_error_with_log(
+                        &state,
+                        format,
+                        &upstream_log_context,
+                        GatewayErrorDetails {
+                            status: StatusCode::BAD_REQUEST,
+                            error_type: "invalid_request_error",
+                            message: &sanitized,
+                            response_body: None,
+                        },
+                    )
+                    .await;
+                }
+            };
+        if let Some(conversation_id) = resolved_upstream_conversation_id.clone() {
+            upstream_payload.conversation_state.conversation_id = conversation_id;
+        }
+        upstream_conversation_id = Some(upstream_payload.conversation_state.conversation_id.clone());
+        let upstream_request_body = serde_json::to_string_pretty(&upstream_payload)
+            .unwrap_or_else(|_| "[failed to serialize upstream payload]".to_string());
+        let payload_log_context = RequestLogContext {
+            request_body: Some(upstream_request_body.as_str()),
+            ..upstream_log_context.clone()
+        };
+
+        match send_generate_request(&state.http, &upstream, &upstream_payload).await {
+            Ok(resp) => {
+                upstream_request_body_owned = upstream_request_body;
+                sent_request_messages = request_for_upstream.messages.clone();
+                break resp;
+            }
+            Err((status, error_type, message, upstream_response_body)) => {
+                let should_retry_model_fallback = !tried_model_fallback
+                    && is_invalid_model_error(status, &message, upstream_response_body.as_deref())
+                    && request_for_upstream.model != "claude-sonnet-4.5";
+                if should_retry_model_fallback {
+                    log::warn!(
+                        "Invalid model from upstream, retrying with fallback model: {} -> claude-sonnet-4.5 (format={:?})",
+                        request_for_upstream.model,
+                        format
+                    );
+                    request_for_upstream.model = "claude-sonnet-4.5".to_string();
+                    tried_model_fallback = true;
+                    continue;
+                }
+
+                let should_retry_overflow = matches!(format, ResponseFormat::OpenAI | ResponseFormat::Anthropic)
+                    && is_input_too_long_error(status, &message, upstream_response_body.as_deref());
+                if should_retry_overflow {
+                    let current_chars: usize = request_for_upstream
+                        .messages
+                        .iter()
+                        .map(|message| extract_plain_text(message.content.as_ref()).chars().count())
+                        .sum();
+                    let target_chars = (current_chars / 2).max(20_000);
+                    let shrunk_messages =
+                        shrink_messages_for_overflow_retry(&request_for_upstream.messages, target_chars);
+                    if shrunk_messages.len() < request_for_upstream.messages.len() {
+                        log::warn!(
+                            "Input too long, retrying with trimmed history: format={:?}, messages {} -> {}, chars {} -> {}",
+                            format,
+                            request_for_upstream.messages.len(),
+                            shrunk_messages.len(),
+                            current_chars,
+                            target_chars
+                        );
+                        request_for_upstream.messages = shrunk_messages;
+                        continue;
+                    }
+                }
                 return gateway_error_with_log(
                     &state,
                     format,
-                    &upstream_log_context,
+                    &payload_log_context,
                     GatewayErrorDetails {
-                        status: StatusCode::BAD_REQUEST,
-                        error_type: "invalid_request_error",
-                        message: &sanitized,
-                        response_body: None,
+                        status,
+                        error_type,
+                        message: &message,
+                        response_body: upstream_response_body.as_deref(),
                     },
                 )
                 .await;
             }
-        };
-    if matches!(format, ResponseFormat::Responses) {
-        if let Some(conversation_id) = resolved_upstream_conversation_id.clone() {
-            upstream_payload.conversation_state.conversation_id = conversation_id;
         }
-    }
-    let upstream_conversation_id = upstream_payload.conversation_state.conversation_id.clone();
-    let upstream_request_body = serde_json::to_string_pretty(&upstream_payload)
-        .unwrap_or_else(|_| "[failed to serialize upstream payload]".to_string());
+    };
     let upstream_payload_log_context = RequestLogContext {
-        request_body: Some(upstream_request_body.as_str()),
+        request_body: Some(upstream_request_body_owned.as_str()),
         ..upstream_log_context.clone()
     };
 
-    let upstream_resp = match send_generate_request(&state.http, &upstream, &upstream_payload).await
-    {
-        Ok(resp) => resp,
-        Err((status, error_type, message, upstream_response_body)) => {
-            return gateway_error_with_log(
+    if request.stream {
+        if let Some(conversation_id) = upstream_conversation_id.as_deref() {
+            write_cached_upstream_conversation_id(
                 &state,
+                client_addr,
+                &request.model,
                 format,
-                &upstream_payload_log_context,
-                GatewayErrorDetails {
-                    status,
-                    error_type,
-                    message: &message,
-                    response_body: upstream_response_body.as_deref(),
-                },
+                conversation_id,
             )
             .await;
         }
-    };
-
-    if request.stream {
         write_request_log(
             &upstream_payload_log_context,
             upstream_resp.status(),
@@ -1089,12 +1192,12 @@ pub async fn proxy_handler(
             format,
             emit_context_usage_for_anthropic,
             request.model.clone(),
-            incoming_request.messages.clone(),
+            sent_request_messages,
             request.tools.clone(),
             request.tool_choice.clone(),
             incoming_request.previous_response_id.clone(),
             Vec::new(),
-            Some(upstream_conversation_id.clone()),
+            upstream_conversation_id,
             StreamLogMeta {
                 request_index: upstream_payload_log_context.request_index,
                 endpoint: upstream_payload_log_context.endpoint.to_string(),
@@ -1167,13 +1270,13 @@ pub async fn proxy_handler(
         }
     };
     if matches!(format, ResponseFormat::Responses) {
-        persist_responses_session_entry(
-            &state,
-            &response_id,
-            Some(upstream_conversation_id),
-            incoming_request.messages.clone(),
-            request.tools.clone(),
-            request.tool_choice.clone(),
+            persist_responses_session_entry(
+                &state,
+                &response_id,
+                upstream_conversation_id.clone(),
+                incoming_request.messages.clone(),
+                request.tools.clone(),
+                request.tool_choice.clone(),
             incoming_request.previous_response_id.clone(),
             &aggregated,
         )
@@ -1186,6 +1289,16 @@ pub async fn proxy_handler(
         None,
         Some(body.as_str()),
     );
+    if let Some(conversation_id) = upstream_conversation_id.as_deref() {
+        write_cached_upstream_conversation_id(
+            &state,
+            client_addr,
+            &request.model,
+            format,
+            conversation_id,
+        )
+        .await;
+    }
     Json(response).into_response()
 }
 
@@ -2512,6 +2625,76 @@ fn build_responses_message_content(
     content
 }
 
+fn is_input_too_long_error(
+    status: StatusCode,
+    message: &str,
+    upstream_response_body: Option<&str>,
+) -> bool {
+    if status != StatusCode::BAD_REQUEST {
+        return false;
+    }
+    let message_lower = message.to_ascii_lowercase();
+    if message_lower.contains("input is too long") {
+        return true;
+    }
+    upstream_response_body
+        .map(|body| body.to_ascii_lowercase().contains("content_length_exceeds_threshold"))
+        .unwrap_or(false)
+}
+
+fn is_invalid_model_error(
+    status: StatusCode,
+    message: &str,
+    upstream_response_body: Option<&str>,
+) -> bool {
+    if status != StatusCode::BAD_REQUEST {
+        return false;
+    }
+    let message_lower = message.to_ascii_lowercase();
+    if message_lower.contains("invalid model") {
+        return true;
+    }
+    upstream_response_body
+        .map(|body| body.to_ascii_lowercase().contains("invalid_model_id"))
+        .unwrap_or(false)
+}
+
+fn shrink_messages_for_overflow_retry(messages: &[NormalizedMessage], target_chars: usize) -> Vec<NormalizedMessage> {
+    if messages.is_empty() {
+        return Vec::new();
+    }
+
+    let system_messages: Vec<NormalizedMessage> = messages
+        .iter()
+        .filter(|message| message.role == "system")
+        .cloned()
+        .collect();
+
+    let non_system: Vec<&NormalizedMessage> = messages
+        .iter()
+        .filter(|message| message.role != "system")
+        .collect();
+
+    let mut selected: Vec<NormalizedMessage> = Vec::new();
+    let mut selected_chars = 0usize;
+
+    for message in non_system.iter().rev() {
+        let message_chars = extract_plain_text(message.content.as_ref()).chars().count();
+        let must_keep_recent = selected.len() < 6;
+        if must_keep_recent || selected_chars + message_chars <= target_chars {
+            selected.push((**message).clone());
+            selected_chars += message_chars;
+        } else {
+            break;
+        }
+    }
+
+    selected.reverse();
+    let mut combined = system_messages;
+    combined.extend(selected);
+    combined
+}
+
 fn apply_usage_fallback_for_responses(
     aggregated: &mut stream::AggregatedKiroResponse,
     request_messages: &[NormalizedMessage],
@@ -3810,6 +3993,7 @@ mod tests {
             last_error: Arc::new(AsyncMutex::new(None)),
             http: Client::new(),
             responses_sessions: Arc::new(AsyncMutex::new(HashMap::new())),
+            upstream_conversations: Arc::new(AsyncMutex::new(HashMap::new())),
         }
     }
 
