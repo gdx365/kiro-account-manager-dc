@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useApp } from '../../../hooks/useApp'
 import { useDialog } from '../../../contexts/DialogContext'
-import { FileText, RefreshCw, Trash2, Save, Plus, X, Globe, FolderOpen, Wand2, Sparkles } from 'lucide-react'
+import { FileText, RefreshCw, Trash2, Save, Plus, X, Wand2, Sparkles } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -12,7 +12,15 @@ import {
   getGradientAccentButton,
   getThemeSurfaceStyles} from './themeAccent'
 import { handleUiError } from '../../../utils/errorLogger'
+import { formatSize, ScopeBadge } from './shared'
 import React from 'react'
+
+interface SteeringItem {
+  fileName: string
+  scope: string
+  content: string
+  size: number
+}
 
 // 解析 front-matter（v0.10.32: inclusion + name + description + fileMatchPattern）
 const parseFrontMatter = (content: string) => {
@@ -37,26 +45,7 @@ const buildContent = (inclusion: string, filePattern: string, body: string, name
   return fm + '\n---\n' + body
 }
 
-// 格式化文件大小
-const formatSize = (bytes: number) => bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`
-
-// scope 徽章
-const ScopeBadge = ({ scope, accent }: any) => {
-  if (scope === 'project') {
-    return (
-      <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-500 border border-amber-500/30">
-        <FolderOpen size={10} />项目
-      </span>
-    )
-  }
-  return (
-    <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${accent.scopeBadge}`}>
-      <Globe size={10} />用户
-    </span>
-  )
-}
-
-function SteeringPanel({ onCountChange, projectDir }: any) {
+function SteeringPanel({ onCountChange, projectDir }: { onCountChange?: (count: number) => void; projectDir?: string }) {
   const { t, theme } = useApp()
   const accent = useMemo(() => getThemeAccent(theme), [theme])
   const { showConfirm, showSuccess } = useDialog()
@@ -70,9 +59,9 @@ function SteeringPanel({ onCountChange, projectDir }: any) {
     info: 'bg-primary/10'
   }
   
-  const [files, setFiles] = useState<any[]>([])
+  const [files, setFiles] = useState<SteeringItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedFile, setSelectedFile] = useState<any>(null)
+  const [selectedFile, setSelectedFile] = useState<SteeringItem | null>(null)
   const [editState, setEditState] = useState({ content: '', inclusion: 'always', filePattern: '', name: '', description: '' })
   const [saving, setSaving] = useState(false)
   const [hasChanges, setHasChanges] = useState(false)
@@ -84,7 +73,7 @@ function SteeringPanel({ onCountChange, projectDir }: any) {
   const loadFiles = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await invoke<any[]>('get_steering_files', { projectDir: projectDir || null })
+      const data = await invoke<SteeringItem[]>('get_steering_files', { projectDir: projectDir || null })
       setFiles(data)
       onCountChange?.(data?.length || 0)
     } catch (e) {
@@ -101,7 +90,7 @@ function SteeringPanel({ onCountChange, projectDir }: any) {
     loadFiles()
   }, [loadFiles])
 
-  const handleSelect = async (file: any) => {
+  const handleSelect = async (file: SteeringItem) => {
     if (hasChanges && !await showConfirm(t('steering.unsavedChanges'), t('steering.confirmSwitch'))) return
     setSelectedFile(file)
     const parsed = parseFrontMatter(file.content)
@@ -109,7 +98,7 @@ function SteeringPanel({ onCountChange, projectDir }: any) {
     setHasChanges(false)
   }
 
-  const updateEditState = (key: string, value: any) => {
+  const updateEditState = (key: string, value: unknown) => {
     const newState = { ...editState, [key]: value }
     setEditState(newState)
     if (selectedFile) {
@@ -139,7 +128,7 @@ function SteeringPanel({ onCountChange, projectDir }: any) {
     }
   }
 
-  const handleDelete = async (file: any) => {
+  const handleDelete = async (file: SteeringItem) => {
     if (!await showConfirm(t('steering.confirmDelete'), t('steering.confirmDeleteFile', { fileName: file.fileName }))) return
     try {
       await invoke('delete_steering_file', {
@@ -164,7 +153,7 @@ function SteeringPanel({ onCountChange, projectDir }: any) {
     const fName = fileName.endsWith('.md') ? fileName : `${fileName}.md`
     const content = buildContent(inclusion, filePattern, '\n<!-- 在此添加你的 steering 规则 -->\n', name, description)
     try {
-      const newFile = await invoke<any>('create_steering_file', {
+      const newFile = await invoke<SteeringItem>('create_steering_file', {
         fileName: fName,
         content,
         scope,
@@ -192,7 +181,7 @@ function SteeringPanel({ onCountChange, projectDir }: any) {
     return useProjectScope ? 'project' : 'user'
   }
 
-  const upsertFile = (nextFile: any) => {
+  const upsertFile = (nextFile: SteeringItem) => {
     const nextFiles = [
       ...files.filter(file => !(file.fileName === nextFile.fileName && file.scope === nextFile.scope)),
       nextFile
@@ -206,7 +195,7 @@ function SteeringPanel({ onCountChange, projectDir }: any) {
     setCreatingDefault(true)
     try {
       const scope = await resolveScope()
-      const created = await invoke<any>('create_default_steering_file', {
+      const created = await invoke<SteeringItem>('create_default_steering_file', {
         scope,
         projectDir: projectDir || null})
       upsertFile(created)
@@ -222,7 +211,7 @@ function SteeringPanel({ onCountChange, projectDir }: any) {
     if (!projectDir) return
     setInitializingProject(true)
     try {
-      const created = await invoke<any>('create_initial_project_steering', { projectDir })
+      const created = await invoke<SteeringItem>('create_initial_project_steering', { projectDir })
       const createdFiles = Array.isArray(created) ? created : []
       if (createdFiles.length > 0) {
         const merged = [...files]
@@ -250,7 +239,7 @@ function SteeringPanel({ onCountChange, projectDir }: any) {
     if (!selectedFile) return
     setRefining(true)
     try {
-      const refined = await invoke<any>('refine_steering_file', {
+      const refined = await invoke<SteeringItem>('refine_steering_file', {
         fileName: selectedFile.fileName,
         scope: selectedFile.scope,
         projectDir: projectDir || null})
@@ -346,14 +335,18 @@ function SteeringPanel({ onCountChange, projectDir }: any) {
 }
 
 // inclusion 模式配色映射
-const getInclusionStyles = (accent: any): any => ({
+type InclusionStyle = { color: string; bg: string; border: string; dot: string; label: string }
+const getInclusionStyles = (accent: { text: string; bgSoft: string; borderSoft: string; solidBg: string }): Record<string, InclusionStyle> => ({
   always:    { color: 'text-green-500',  bg: 'bg-green-500/15', border: 'border-green-500/30', dot: 'bg-green-500', label: '始终' },
   auto:      { color: accent.text, bg: accent.bgSoft, border: accent.borderSoft, dot: accent.solidBg, label: '自动' },
   fileMatch: { color: accent.text, bg: accent.bgSoft, border: accent.borderSoft, dot: accent.solidBg, label: '匹配' },
   manual:    { color: 'text-orange-500', bg: 'bg-orange-500/15', border: 'border-orange-500/30', dot: 'bg-orange-500', label: '手动' }})
 
 // inclusion 徽章
-const InclusionBadge = ({ inclusion, accent }: any) => {
+const InclusionBadge = ({ inclusion, accent }: {
+  inclusion: string
+  accent: { text: string; bgSoft: string; borderSoft: string; solidBg: string }
+}) => {
   const styles = getInclusionStyles(accent)
   const s = styles[inclusion] || styles.always
   return (
@@ -365,7 +358,22 @@ const InclusionBadge = ({ inclusion, accent }: any) => {
 }
 
 // 文件列表组件
-function FileList({ files, selectedFile, onSelect, onDelete, onRefresh, onCreate, onCreateDefault, onCreateInitial, creatingDefault, initializingProject, hasProjectDir, accent, colors, t }: any) {
+function FileList({ files, selectedFile, onSelect, onDelete, onRefresh, onCreate, onCreateDefault, onCreateInitial, creatingDefault, initializingProject, hasProjectDir, accent, colors, t }: {
+  files: SteeringItem[]
+  selectedFile: SteeringItem | null
+  onSelect: (file: SteeringItem) => void
+  onDelete: (file: SteeringItem) => void
+  onRefresh: () => void
+  onCreate: () => void
+  onCreateDefault: () => void
+  onCreateInitial: () => void
+  creatingDefault: boolean
+  initializingProject: boolean
+  hasProjectDir: boolean
+  accent: { text: string; ring: string; bg: string; border: string; bgSoft: string; borderSoft: string; solidBg: string }
+  colors: { btnDisabled: string; dialogHeader: string; inputFocus: string; info: string }
+  t: (key: string) => string
+}) {
   const accentSolidButtonClass = getSolidAccentButton(accent)
   const inclusionStyles = getInclusionStyles(accent)
   // 按 inclusion 分组（保持顺序）
@@ -376,7 +384,7 @@ function FileList({ files, selectedFile, onSelect, onDelete, onRefresh, onCreate
     { key: 'manual',    label: '手动引用' },
   ].map(g => ({
     ...g,
-    files: files.filter((f: any) => parseFrontMatter(f.content).inclusion === g.key),
+    files: files.filter((f: SteeringItem) => parseFrontMatter(f.content).inclusion === g.key),
     style: inclusionStyles[g.key]})).filter(g => g.files.length > 0)
 
   return (
@@ -448,7 +456,7 @@ function FileList({ files, selectedFile, onSelect, onDelete, onRefresh, onCreate
 
                 {/* 文件卡片 */}
                 <div className="space-y-2">
-                  {group.files.map((file: any) => {
+                  {group.files.map((file: SteeringItem) => {
                     const parsed = parseFrontMatter(file.content)
                     const isSelected = selectedFile?.fileName === file.fileName && selectedFile?.scope === file.scope
                     return (
@@ -510,7 +518,25 @@ function FileList({ files, selectedFile, onSelect, onDelete, onRefresh, onCreate
 }
 
 // 编辑器组件
-function Editor({ file, editState, hasChanges, saving, refining, inclusionOptions, onContentChange, onInclusionChange, onFilePatternChange, onNameChange, onDescriptionChange, onSave, onRefine, surface, accent, colors, t }: any) {
+function Editor({ file, editState, hasChanges, saving, refining, inclusionOptions, onContentChange, onInclusionChange, onFilePatternChange, onNameChange, onDescriptionChange, onSave, onRefine, surface, accent, colors, t }: {
+  file: SteeringItem
+  editState: { content: string; inclusion: string; filePattern: string; name: string; description: string }
+  hasChanges: boolean
+  saving: boolean
+  refining: boolean
+  inclusionOptions: Array<{ value: string; label: string; desc: string }>
+  onContentChange: (value: string) => void
+  onInclusionChange: (value: string) => void
+  onFilePatternChange: (value: string) => void
+  onNameChange: (value: string) => void
+  onDescriptionChange: (value: string) => void
+  onSave: () => void
+  onRefine: () => void
+  surface: { editorText: string; editorBg: string; editorBorder: string }
+  accent: { ring: string; bg: string; border: string; text: string; bgSoft: string; borderSoft: string; solidBg: string; tabActive?: string }
+  colors: { btnDisabled: string; inputFocus: string }
+  t: (key: string) => string
+}) {
   const accentSolidButtonClass = getSolidAccentButton(accent)
   return (
     <>
@@ -551,7 +577,7 @@ function Editor({ file, editState, hasChanges, saving, refining, inclusionOption
                 <SelectValue placeholder="选择模式..." />
               </SelectTrigger>
               <SelectContent className={`glass-card border border-border`}>
-                {inclusionOptions.map((opt: any) => (
+                {inclusionOptions.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value} className={"text-foreground"}>
                     {opt.label}
                   </SelectItem>
@@ -613,7 +639,15 @@ function Editor({ file, editState, hasChanges, saving, refining, inclusionOption
 }
 
 // 创建弹窗组件
-function CreateModal({ inclusionOptions, onCreate, onClose, accent, colors, t, hasProjectDir }: any) {
+function CreateModal({ inclusionOptions, onCreate, onClose, accent, colors, t, hasProjectDir }: {
+  inclusionOptions: Array<{ value: string; label: string; desc: string }>
+  onCreate: (fileName: string, inclusion: string, filePattern: string, scope: string, name: string, description: string) => void
+  onClose: () => void
+  accent: { text: string; ring: string }
+  colors: { dialogHeader: string; info: string; inputFocus: string }
+  t: (key: string) => string
+  hasProjectDir: boolean
+}) {
   const accentGradientButtonClass = getGradientAccentButton(accent)
   const [fileName, setFileName] = useState('')
   const [inclusion, setInclusion] = useState('always')
@@ -698,7 +732,7 @@ function CreateModal({ inclusionOptions, onCreate, onClose, accent, colors, t, h
                 <SelectValue placeholder="选择模式" />
               </SelectTrigger>
               <SelectContent className={`glass-card border border-border`}>
-                {inclusionOptions.map((opt: any) => (
+                {inclusionOptions.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value} className={"text-foreground"}>
                     {opt.label} - {opt.desc}
                   </SelectItem>

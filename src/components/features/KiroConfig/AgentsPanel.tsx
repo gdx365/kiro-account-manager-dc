@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useApp } from '../../../hooks/useApp'
 import { useDialog } from '../../../contexts/DialogContext'
-import { Bot, RefreshCw, Trash2, Save, Plus, X, Tag, FolderOpen, Globe } from 'lucide-react'
+import { Bot, RefreshCw, Trash2, Save, Plus, X, Tag } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -14,7 +14,15 @@ import {
   getGradientAccentButton,
   getThemeSurfaceStyles} from './themeAccent'
 import { handleUiError } from '../../../utils/errorLogger'
+import { formatSize, ScopeBadge } from './shared'
 import React from 'react'
+
+interface AgentItem {
+  fileName: string
+  scope: string
+  content: string
+  size: number
+}
 
 // 解析 agent front-matter（v0.10.32 完整 schema: name, description, tools, model, includeMcpJson, includePowers）
 const parseAgentFrontMatter = (content: string) => {
@@ -47,7 +55,14 @@ const parseAgentFrontMatter = (content: string) => {
 }
 
 // 组装 agent front-matter（v0.10.32 完整 schema）
-const buildAgentContent = ({ name, description, tools, model, includeMcpJson, includePowers }: any, body: string) => {
+const buildAgentContent = ({ name, description, tools, model, includeMcpJson, includePowers }: {
+  name: string
+  description: string
+  tools: string[]
+  model: string
+  includeMcpJson: boolean
+  includePowers: boolean
+}, body: string) => {
   let fm = '---'
   if (name) fm += `\nname: "${name}"`
   if (description) fm += `\ndescription: "${description}"`
@@ -65,25 +80,6 @@ const buildAgentContent = ({ name, description, tools, model, includeMcpJson, in
   if (includeMcpJson) fm += '\nincludeMcpJson: true'
   if (includePowers) fm += '\nincludePowers: true'
   return fm + '\n---\n' + body
-}
-
-// 格式化文件大小
-const formatSize = (bytes: number) => bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`
-
-// scope 徽章
-const ScopeBadge = ({ scope, accent }: any) => {
-  if (scope === 'project') {
-    return (
-      <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-500 border border-amber-500/30">
-        <FolderOpen size={10} />项目
-      </span>
-    )
-  }
-  return (
-    <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${accent.scopeBadge}`}>
-      <Globe size={10} />用户
-    </span>
-  )
 }
 
 // Kiro v0.10.32 可用的工具标签
@@ -112,7 +108,7 @@ const normalizeToolTagsSelection = (nextValues: string[], prevValues: string[] =
   return prevHasWildcard ? uniqueValues.filter(value => value !== '*') : ['*']
 }
 
-function AgentsPanel({ onCountChange, projectDir }: any) {
+function AgentsPanel({ onCountChange, projectDir }: { onCountChange?: (count: number) => void; projectDir?: string }) {
   const { t, theme } = useApp()
   const accent = useMemo(() => getThemeAccent(theme), [theme])
   const { showConfirm } = useDialog()
@@ -129,9 +125,9 @@ function AgentsPanel({ onCountChange, projectDir }: any) {
     info: 'bg-primary/10'
   }
 
-  const [agents, setAgents] = useState<any[]>([])
+  const [agents, setAgents] = useState<AgentItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedAgent, setSelectedAgent] = useState<any>(null)
+  const [selectedAgent, setSelectedAgent] = useState<AgentItem | null>(null)
   const [editState, setEditState] = useState({
     name: '', description: '', tools: [] as string[], model: '',
     includeMcpJson: false, includePowers: false, body: ''
@@ -144,7 +140,7 @@ function AgentsPanel({ onCountChange, projectDir }: any) {
   const loadAgents = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await invoke<any[]>('get_custom_agents', { projectDir: projectDir || null })
+      const data = await invoke<AgentItem[]>('get_custom_agents', { projectDir: projectDir || null })
       setAgents(data)
       onCountChange?.(data?.length || 0)
     } catch (e) {
@@ -161,7 +157,7 @@ function AgentsPanel({ onCountChange, projectDir }: any) {
     loadAgents()
   }, [loadAgents])
 
-  const handleSelect = async (agent: any) => {
+  const handleSelect = async (agent: AgentItem) => {
     if (hasChanges && !await showConfirm(t('agents.unsavedChanges'), t('agents.confirmSwitch'))) return
     setSelectedAgent(agent)
     const parsed = parseAgentFrontMatter(agent.content)
@@ -169,7 +165,7 @@ function AgentsPanel({ onCountChange, projectDir }: any) {
     setHasChanges(false)
   }
 
-  const updateEditState = (key: string, value: any) => {
+  const updateEditState = (key: string, value: unknown) => {
     const normalizedValue = key === 'tools'
       ? normalizeToolTagsSelection(value, editState.tools)
       : value
@@ -204,7 +200,7 @@ function AgentsPanel({ onCountChange, projectDir }: any) {
     }
   }
 
-  const handleDelete = async (agent: any) => {
+  const handleDelete = async (agent: AgentItem) => {
     if (!await showConfirm(t('agents.confirmDelete'), t('agents.confirmDeleteAgent', { fileName: agent.fileName }))) return
     try {
       await invoke('delete_custom_agent', {
@@ -230,7 +226,7 @@ function AgentsPanel({ onCountChange, projectDir }: any) {
     const body = '\n<!-- 在此编写 Agent 的系统提示词 -->\n'
     const content = buildAgentContent({ name: agentName.replace('.md', ''), description, tools, model, includeMcpJson: false, includePowers: false }, body)
     try {
-      const newAgent = await invoke<any>('create_custom_agent', {
+      const newAgent = await invoke<AgentItem>('create_custom_agent', {
         fileName,
         content,
         scope,
@@ -502,7 +498,16 @@ function AgentsPanel({ onCountChange, projectDir }: any) {
 }
 
 // 创建 Agent 弹窗
-function CreateAgentModal({ onCreate, onClose, accent, surface, accentGradientButtonClass, colors, t, hasProjectDir }: any) {
+function CreateAgentModal({ onCreate, onClose, accent, surface, accentGradientButtonClass, colors, t, hasProjectDir }: {
+  onCreate: (name: string) => Promise<boolean>
+  onClose: () => void
+  accent: { ring: string }
+  surface: { inputBg: string; inputBorder: string; inputText: string; placeholder: string }
+  accentGradientButtonClass: string
+  colors: { inputFocus: string; btnDisabled: string }
+  t: (key: string) => string
+  hasProjectDir: boolean
+}) {
   const [agentName, setAgentName] = useState('')
   const [description, setDescription] = useState('')
   const [tools, setTools] = useState<string[]>([])

@@ -606,7 +606,8 @@ fn write_request_log(
         outcome: outcome.to_string(),
         duration_ms,
         error: error.map(str::to_string),
-        request_body: truncate_log_body(context.request_body),
+        // Security default: do not persist request bodies unless explicitly enabled.
+        request_body: None,
         response_body: truncate_log_body(response_body),
     };
     let _ = append_gateway_request_log(&entry);
@@ -2362,25 +2363,6 @@ fn build_responses_citation_annotations(citations: &[stream::AggregatedCitation]
         .collect()
 }
 
-fn build_responses_annotation_added_event(
-    response_id: &str,
-    message_id: &str,
-    annotation: Value,
-    annotation_index: usize,
-    sequence_number: usize,
-) -> Value {
-    json!({
-        "type": "response.output_text.annotation.added",
-        "response_id": response_id,
-        "item_id": message_id,
-        "output_index": 0,
-        "content_index": 0,
-        "annotation_index": annotation_index,
-        "annotation": annotation,
-        "sequence_number": sequence_number
-    })
-}
-
 fn extract_web_search_sources(server_tool_calls: &[ServerToolCall]) -> Vec<WebSearchSource> {
     let mut seen = HashSet::new();
     let mut sources = Vec::new();
@@ -2518,6 +2500,15 @@ fn build_responses_message_content(
             "summary": aggregated.thinking
         }));
     }
+    content.extend(aggregated.tool_calls.iter().map(|(id, name, arguments)| {
+        json!({
+            "type": "function_call",
+            "status": "completed",
+            "call_id": id,
+            "name": name,
+            "arguments": arguments
+        })
+    }));
     content
 }
 
@@ -2585,16 +2576,6 @@ fn build_responses_response_with_ids(
         .filter(|call| call.name == "web_search")
         .map(build_responses_web_search_call)
         .collect();
-    output.extend(aggregated.tool_calls.iter().map(|(id, name, arguments)| {
-        json!({
-            "id": format!("fc_{id}"),
-            "type": "function_call",
-            "status": "completed",
-            "call_id": id,
-            "name": name,
-            "arguments": arguments
-        })
-    }));
     if include_assistant_message {
         output.push(json!({
             "id": message_id,

@@ -15,6 +15,7 @@ import SettingsGeneral from './SettingsGeneral'
 import SettingsKiro from './SettingsKiro'
 import SettingsAgent from './SettingsAgent'
 import SettingsNotifications from './SettingsNotifications'
+import type { AppSettingsShape, BrowserInfo, KiroSettings, SystemMachineInfo } from './settingsTypes'
 import React from 'react'
 
 function Settings() {
@@ -39,7 +40,7 @@ function Settings() {
     const [kiroProtocolPath, setKiroProtocolPath] = useState('')
     const [originalKiroProtocolPath, setOriginalKiroProtocolPath] = useState('')
     const [savingKiroProtocol, setSavingKiroProtocol] = useState(false)
-    const [detectedBrowsers, setDetectedBrowsers] = useState<any[]>([])
+    const [detectedBrowsers, setDetectedBrowsers] = useState<BrowserInfo[]>([])
     const [showBrowserList, setShowBrowserList] = useState(false)
     const [detectingProxy, setDetectingProxy] = useState(false)
     const [enableCodebaseIndexing, setEnableCodebaseIndexing] = useState(true)
@@ -77,7 +78,7 @@ function Settings() {
     const [loading, setLoading] = useState(false)
 
     // 系统机器码
-    const [systemMachineInfo, setSystemMachineInfo] = useState<any>(null)
+    const [systemMachineInfo, setSystemMachineInfo] = useState<SystemMachineInfo | null>(null)
     const [machineGuidAction, setMachineGuidAction] = useState<string | null>(null) // 'reset'
 
     // 加载设置（指纹延迟加载，不阻塞页面）
@@ -96,9 +97,9 @@ function Settings() {
         try {
             // 先加载核心设置（快速）
             const [kiroSettings, appSettings, sysMachine, protocolCommand] = await Promise.all([
-                invoke<any>('get_kiro_settings').catch(() => null),
-                invoke<any>('get_app_settings').catch(() => null),
-                invoke<any>('get_system_machine_guid').catch(() => null),
+                invoke<KiroSettings | null>('get_kiro_settings').catch(() => null),
+                invoke<AppSettingsShape | null>('get_app_settings').catch(() => null),
+                invoke<SystemMachineInfo | null>('get_system_machine_guid').catch(() => null),
                 invoke<string>('get_kiro_protocol_command').catch(() => '')
             ])
             setSystemMachineInfo(sysMachine)
@@ -160,7 +161,7 @@ function Settings() {
         loadSettings()
     }, [loadSettings])
 
-    const saveAppSettings = (updates: any, notifyChange = false) => persistAppSettings({
+    const saveAppSettings = (updates: AppSettingsShape, notifyChange = false) => persistAppSettings({
         updates,
         notifyChange,
         updateAppSettings,
@@ -168,13 +169,13 @@ function Settings() {
         showError,
         t})
 
-    const runKiroCommand = (command: string, commandArgs: any, appSettingsUpdates: any = null, notifyChange = false) => runKiroCommandWithAppSettings({
+    const runKiroCommand = (command: string, commandArgs: Record<string, unknown>, appSettingsUpdates: AppSettingsShape | null = null, notifyChange = false) => runKiroCommandWithAppSettings({
         command,
         commandArgs,
         appSettingsUpdates,
         notifyChange,
         invokeFn: invoke,
-        persistSettings: ({ updates, notifyChange: shouldNotify }: any) => saveAppSettings(updates, shouldNotify),
+        persistSettings: ({ updates, notifyChange: shouldNotify }: { updates: AppSettingsShape; notifyChange?: boolean }) => saveAppSettings(updates, !!shouldNotify),
         showError,
         t})
 
@@ -189,7 +190,7 @@ function Settings() {
             await invoke('set_kiro_proxy', { proxy: httpProxy })
             setOriginalProxy(httpProxy)
             await showSuccess(t('settings.saveSuccess'), httpProxy ? t('settings.proxyApplied') : t('settings.proxyCleared'))
-        } catch (err: any) {
+        } catch (err) {
             await showError(t('settings.saveFailed'), t('settings.saveFailed') + ': ' + err)
         } finally {
             setSavingProxy(false)
@@ -204,7 +205,7 @@ function Settings() {
             if (lockModel) {
                 await saveAppSettings({ lockedModel: model })
             }
-        } catch (err: any) {
+        } catch (err) {
             await showError(t('settings.saveFailed'), t('settings.saveFailed') + ': ' + err)
         } finally {
             setSavingModel(false)
@@ -237,7 +238,7 @@ function Settings() {
         await saveAppSettings({ autoSwitchEnabled: checked }, true)
     }
 
-    const handleAutoSwitchThresholdChange = async (value: any) => {
+    const handleAutoSwitchThresholdChange = async (value: number) => {
         const parsedValue = typeof value === 'number' ? value : parseFloat(value)
         const threshold = Number.isFinite(parsedValue) ? parsedValue : 1
         setAutoSwitchThreshold(threshold)
@@ -268,7 +269,7 @@ function Settings() {
         setTrustedCommandsMode(mode)
         try {
             await invoke('set_kiro_trusted_commands', { mode, customCommands: customTrustedCommands })
-        } catch (err: any) {
+        } catch (err) {
             await showError(t('settings.saveFailed'), t('settings.saveFailed') + ': ' + err)
         }
     }
@@ -278,7 +279,7 @@ function Settings() {
         if (trustedCommandsMode === 'common') {
             try {
                 await invoke('set_kiro_trusted_commands', { mode: 'common', customCommands: commands })
-            } catch (err: any) {
+            } catch (err) {
                 await showError(t('settings.saveFailed'), t('settings.saveFailed') + ': ' + err)
             }
         }
@@ -311,7 +312,7 @@ function Settings() {
 
     const handleNotificationChange = async (key: string, checked: boolean, setter: (v: boolean) => void) => {
         setter(checked)
-        const field = (NOTIFICATION_SETTINGS_FIELD_MAP as any)[key]
+        const field = NOTIFICATION_SETTINGS_FIELD_MAP[key as keyof typeof NOTIFICATION_SETTINGS_FIELD_MAP]
         await runKiroCommand('set_kiro_notification', { key, enabled: checked }, field ? { [field]: checked } : null)
     }
 
@@ -347,7 +348,7 @@ function Settings() {
             await saveAppSettings({ browserPath: browserPath })
             setOriginalBrowserPath(browserPath)
             await showSuccess(t('settings.saveSuccess'), browserPath ? t('settings.browserSaved') : t('settings.defaultBrowser'))
-        } catch (err: any) {
+        } catch (err) {
             await showError(t('settings.saveFailed'), err.toString())
         } finally {
             setSavingBrowser(false)
@@ -356,10 +357,10 @@ function Settings() {
 
     const handleDetectBrowsers = async () => {
         try {
-            const browsers = await invoke<any[]>('detect_installed_browsers')
+            const browsers = await invoke<BrowserInfo[]>('detect_installed_browsers')
             setDetectedBrowsers(browsers)
             setShowBrowserList(true)
-        } catch (err: any) {
+        } catch (err) {
             await showError(t('settings.detectFailed'), err.toString())
         }
     }
@@ -378,7 +379,7 @@ function Settings() {
             setKiroProtocolPath(exePath || normalized)
             setOriginalKiroProtocolPath(exePath || normalized)
             await showSuccess('保存成功', 'Kiro 协议映射已更新')
-        } catch (err: any) {
+        } catch (err) {
             await showError('保存失败', String(err))
         } finally {
             setSavingKiroProtocol(false)
@@ -393,7 +394,7 @@ function Settings() {
             setKiroProtocolPath(exePath)
             setOriginalKiroProtocolPath(exePath)
             await showSuccess('已恢复', '协议映射已恢复为当前程序路径')
-        } catch (err: any) {
+        } catch (err) {
             await showError('恢复失败', String(err))
         } finally {
             setSavingKiroProtocol(false)
@@ -403,7 +404,7 @@ function Settings() {
     const handleDetectProxy = async () => {
         setDetectingProxy(true)
         try {
-            const proxyInfo = await invoke<any>('detect_system_proxy')
+            const proxyInfo = await invoke<{ enabled?: boolean; httpProxy?: string }>('detect_system_proxy')
             if (proxyInfo.enabled && proxyInfo.httpProxy) {
                 const detectedProxy = proxyInfo.httpProxy.startsWith('http://')
                     || proxyInfo.httpProxy.startsWith('https://')
@@ -426,7 +427,7 @@ function Settings() {
             } else {
                 await showError(t('settings.noProxyDetected'), t('settings.noProxyConfigured'))
             }
-        } catch (err: any) {
+        } catch (err) {
             await showError(t('settings.detectFailed'), err.toString())
         } finally {
             setDetectingProxy(false)
@@ -444,9 +445,9 @@ function Settings() {
         setMachineGuidAction('reset')
         try {
             const newGuid = await invoke<string>('reset_system_machine_guid')
-            setSystemMachineInfo((prev: any) => ({ ...prev, machineGuid: newGuid }))
+            setSystemMachineInfo((prev) => (prev ? { ...prev, machineGuid: newGuid } : prev))
             await showSuccess(t('settings.resetSuccess'), `${t('settings.newMachineGuid')}: ${newGuid}`)
-        } catch (err: any) {
+        } catch (err) {
             await showError(t('settings.resetFailed'), err.toString())
             setMachineGuidAction(null)
         }

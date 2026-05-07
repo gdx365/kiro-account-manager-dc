@@ -1,7 +1,21 @@
 export function getThemeAccent(theme: string) {
   const isLight = !['dark', 'dark-one', 'tech', 'midnight', 'forest'].includes(theme);
   
-  const accents: Record<string, any> = {
+  const accents: Record<string, {
+    gradientFrom: string
+    gradientTo: string
+    shadow: string
+    bg: string
+    bgSoft: string
+    text: string
+    textSoft: string
+    ring: string
+    border: string
+    borderSoft: string
+    solidBg: string
+    scopeBadge: string
+    tabActive?: string
+  }> = {
     light: {
       gradientFrom: 'from-blue-400',
       gradientTo: 'to-blue-600',
@@ -63,11 +77,11 @@ export function getThemeAccent(theme: string) {
   return accents[theme] || accents[isLight ? 'light' : 'dark'];
 }
 
-export function getSolidAccentButton(accent: any) {
+export function getSolidAccentButton(accent: { solidBg: string }) {
   return `${accent.solidBg} text-white hover:opacity-90`;
 }
 
-export function getGradientAccentButton(accent: any) {
+export function getGradientAccentButton(accent: { gradientFrom: string; gradientTo: string }) {
   return `bg-gradient-to-br ${accent.gradientFrom} ${accent.gradientTo} text-white hover:shadow-lg shadow-md`;
 }
 

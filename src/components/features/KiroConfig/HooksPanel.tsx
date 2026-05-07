@@ -4,12 +4,17 @@ import { FolderOpen, Link2, Plus, RefreshCw, Save, Trash2, X } from 'lucide-reac
 import { useApp } from '../../../hooks/useApp'
 import { useDialog } from '../../../contexts/DialogContext'
 import { handleUiError } from '../../../utils/errorLogger'
+import { formatSize } from './shared'
 import { getThemeAccent, getSolidAccentButton, getGradientAccentButton, getThemeSurfaceStyles } from './themeAccent'
 import React from 'react'
 
-const formatSize = (bytes: number) => bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`
+interface HookItem {
+  fileName: string
+  content: string
+  size: number
+}
 
-function HooksPanel({ onCountChange, projectDir }: any) {
+function HooksPanel({ onCountChange, projectDir }: { onCountChange?: (count: number) => void; projectDir?: string }) {
   const { t, theme } = useApp()
   const accent = useMemo(() => getThemeAccent(theme), [theme])
   const { showConfirm, showError } = useDialog()
@@ -25,9 +30,9 @@ function HooksPanel({ onCountChange, projectDir }: any) {
     info: 'bg-primary/10'
   }
 
-  const [hooks, setHooks] = useState<any[]>([])
+  const [hooks, setHooks] = useState<HookItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedHook, setSelectedHook] = useState<any>(null)
+  const [selectedHook, setSelectedHook] = useState<HookItem | null>(null)
   const [editContent, setEditContent] = useState('')
   const [saving, setSaving] = useState(false)
   const [hasChanges, setHasChanges] = useState(false)
@@ -46,7 +51,7 @@ function HooksPanel({ onCountChange, projectDir }: any) {
 
     setLoading(true)
     try {
-      const data = await invoke<any[]>('get_hooks', { projectDir })
+      const data = await invoke<HookItem[]>('get_hooks', { projectDir })
       setHooks(data)
       onCountChange?.(data?.length || 0)
     } catch (e) {
@@ -63,7 +68,7 @@ function HooksPanel({ onCountChange, projectDir }: any) {
     loadHooks()
   }, [loadHooks])
 
-  const handleSelect = async (hookFile: any) => {
+  const handleSelect = async (hookFile: HookItem) => {
     if (hasChanges && !await showConfirm(t('hooks.unsavedChanges'), t('hooks.confirmSwitch'))) return
     setSelectedHook(hookFile)
     setEditContent(hookFile.content || '')
@@ -93,7 +98,7 @@ function HooksPanel({ onCountChange, projectDir }: any) {
     }
   }
 
-  const handleDelete = async (hookFile: any) => {
+  const handleDelete = async (hookFile: HookItem) => {
     if (!projectDir) return
     if (!await showConfirm(t('hooks.confirmDelete'), t('hooks.confirmDeleteFile', { fileName: hookFile.fileName }))) return
     try {
@@ -155,7 +160,7 @@ function HooksPanel({ onCountChange, projectDir }: any) {
 }
 `
     try {
-      const newHook = await invoke<any>('create_hook', {
+      const newHook = await invoke<HookItem>('create_hook', {
         fileName: normalized,
         content: template,
         projectDir
@@ -323,7 +328,15 @@ function HooksPanel({ onCountChange, projectDir }: any) {
   )
 }
 
-function CreateHookModal({ onCreate, onClose, colors, t, accent, accentGradientButtonClass, existingFileNames }: any) {
+function CreateHookModal({ onCreate, onClose, colors, t, accent, accentGradientButtonClass, existingFileNames }: {
+  onCreate: (fileName: string) => Promise<boolean>
+  onClose: () => void
+  colors: { dialogHeader: string; info: string; inputFocus: string }
+  t: (key: string) => string
+  accent: { text: string }
+  accentGradientButtonClass: string
+  existingFileNames: string[]
+}) {
   const [fileName, setFileName] = useState('')
   const [creating, setCreating] = useState(false)
 
