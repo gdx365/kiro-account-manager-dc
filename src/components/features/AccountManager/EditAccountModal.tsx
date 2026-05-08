@@ -251,9 +251,16 @@ function EditAccountModal({ account, onClose, onSuccess }: EditAccountModalProps
         params.clientId = form.clientId || null
         params.clientSecret = form.clientSecret || null
       }
+      
+      // 先更新账号基本信息
       const updatedAccount = await invoke<Account>('update_account', { params })
-      await setAccountGroup(account.id, selectedGroupId || null)
-      await setAccountTags(account.id, selectedTagIds)
+      
+      // 并行更新分组和标签，提升性能
+      await Promise.all([
+        setAccountGroup(account.id, selectedGroupId || null),
+        setAccountTags(account.id, selectedTagIds)
+      ])
+      
       onSuccess?.(updatedAccount)
       onClose()
     } catch (e) {

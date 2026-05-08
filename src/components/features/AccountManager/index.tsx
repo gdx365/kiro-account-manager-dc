@@ -19,6 +19,7 @@ import ImportAccountModal from './ImportAccountModal'
 import AccountDetailModal from './AccountDetailModal'
 import EditAccountModal from './EditAccountModal'
 import BatchTagModal from './BatchTagModal'
+import BatchGroupModal from './BatchGroupModal'
 import ConfirmModal from './ConfirmModal'
 import { AccountListSkeleton, AccountTableSkeleton } from '../../shared/Skeleton'
 import { getThemeAccent } from '../KiroConfig/themeAccent'
@@ -42,6 +43,7 @@ function AccountManager({ onNavigate }: AccountManagerProps) {
   const [editingLabelAccount, setEditingLabelAccount] = useState<any>(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const [showBatchTagModal, setShowBatchTagModal] = useState(false)
+  const [showBatchGroupModal, setShowBatchGroupModal] = useState(false)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [selectedTag, setSelectedTag] = useState<string | null>(null)
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null)
@@ -471,6 +473,7 @@ function AccountManager({ onNavigate }: AccountManagerProps) {
         selectedCount={selectedIds.length}
         onBatchDelete={onBatchDelete}
         onBatchTag={() => setShowBatchTagModal(true)}
+        onBatchGroup={() => setShowBatchGroupModal(true)}
         onImport={() => setShowImportModal(true)}
         onExport={async () => {
           if (selectedIds.length === 0) {
@@ -646,6 +649,23 @@ function AccountManager({ onNavigate }: AccountManagerProps) {
               return { ...account, tagLinks: nextTagLinks }
             }))
             loadTagDefinitions()
+            setSelectedIds([])
+          }}
+        />
+      )}
+
+      {showBatchGroupModal && (
+        <BatchGroupModal
+          accountIds={selectedIds}
+          accounts={accounts}
+          onClose={() => setShowBatchGroupModal(false)}
+          onSuccess={({ accountIds: updatedIds, selectedGroupId }) => {
+            setShowBatchGroupModal(false)
+            setAccounts(prev => prev.map(account => {
+              if (!updatedIds.includes(account.id)) return account
+              return { ...account, groupId: selectedGroupId }
+            }))
+            loadGroupDefinitions()
             setSelectedIds([])
           }}
         />

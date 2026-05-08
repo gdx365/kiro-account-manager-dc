@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { Search, Download, Upload, RefreshCcw, RotateCw, Trash2, Tag, ArrowUp, ArrowDown, X, TrendingUp, Clock, Calendar, CheckSquare, Square, Sparkles, LayoutGrid, List } from 'lucide-react'
+import { Search, Download, Upload, RefreshCcw, RotateCw, Trash2, Tag, Folder, ArrowUp, ArrowDown, X, TrendingUp, Clock, Calendar, CheckSquare, Square, Sparkles, LayoutGrid, List } from 'lucide-react'
 import { useApp } from '../../../hooks/useApp'
 import FilterDropdown from './FilterDropdown'
 import { getThemeAccent } from '../KiroConfig/themeAccent'
@@ -11,6 +11,7 @@ interface AccountHeaderProps {
   selectedCount: number;
   onBatchDelete: () => void;
   onBatchTag: () => void;
+  onBatchGroup?: () => void;
   onImport: () => void;
   onExport: () => void;
   onRefresh: () => void;
@@ -42,6 +43,7 @@ function AccountHeader({
   selectedCount,
   onBatchDelete,
   onBatchTag,
+  onBatchGroup,
   onImport,
   onExport,
   onRefresh,
@@ -284,6 +286,16 @@ function AccountHeader({
                 <Tag size={16} />
                 ({selectedCount})
               </button>
+              {onBatchGroup && (
+                <button
+                  onClick={onBatchGroup}
+                  className={`px-4 py-2.5 text-sm font-medium rounded-xl flex items-center gap-2 transition-all duration-200 hover:shadow-lg cursor-pointer bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-md shadow-blue-500/30`}
+                  title={t('groups.batchSet') || '批量设置分组'}
+                >
+                  <Folder size={16} />
+                  ({selectedCount})
+                </button>
+              )}
               <button
                 onClick={onBatchDelete}
                 className="px-4 py-2.5 text-sm font-medium rounded-xl text-white bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 shadow-lg shadow-red-500/30 hover:shadow-red-500/40 flex items-center gap-2 transition-all duration-200 cursor-pointer"
