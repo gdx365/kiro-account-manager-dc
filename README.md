@@ -67,6 +67,7 @@ Kiro Account Manager 是一个基于 **Tauri 2.x** 的桌面应用，用于集�
 | 平台 | 架构 | 文件格式 | 下载链接 |
 |------|------|---------|---------|
 | 🪟 **Windows** | x64 | MSI 安装包 | [KiroAccountManager_1.8.5_x64_zh-CN.msi](https://github.com/hj01857655/kiro-account-manager/releases/download/v1.8.5/KiroAccountManager_1.8.5_x64_zh-CN.msi) |
+| 🪟 **Windows** | x64 | NSIS 安装包 | [KiroAccountManager_1.8.5_x64-setup.exe](https://github.com/hj01857655/kiro-account-manager/releases/download/v1.8.5/KiroAccountManager_1.8.5_x64-setup.exe) |
 | 🍎 **macOS** | Intel (x64) | DMG 镜像 | [KiroAccountManager_1.8.5_x64.dmg](https://github.com/hj01857655/kiro-account-manager/releases/download/v1.8.5/KiroAccountManager_1.8.5_x64.dmg) |
 | 🍎 **macOS** | Apple Silicon (M1/M2/M3) | DMG 镜像 | [KiroAccountManager_1.8.5_aarch64.dmg](https://github.com/hj01857655/kiro-account-manager/releases/download/v1.8.5/KiroAccountManager_1.8.5_aarch64.dmg) |
 | 🐧 **Linux** | x86_64 | AppImage | [KiroAccountManager_1.8.5_amd64.AppImage](https://github.com/hj01857655/kiro-account-manager/releases/download/v1.8.5/KiroAccountManager_1.8.5_amd64.AppImage) |
@@ -80,7 +81,8 @@ Kiro Account Manager 是一个基于 **Tauri 2.x** 的桌面应用，用于集�
 - **Linux**: x86_64 架构，需要 WebKitGTK 4.0+
 
 **安装说明**：
-- **Windows**: 双击 `.msi` 文件安装，首次运行可能需要安装 WebView2
+- **Windows MSI**: 双击 `.msi` 文件安装，首次运行可能需要安装 WebView2
+- **Windows NSIS**: 双击 `.exe` 安装包，支持自定义安装路径和桌面快捷方式
 - **macOS**: 打开 `.dmg` 文件，拖动应用到 Applications 文件夹，首次运行需要在「系统偏好设置 → 安全性与隐私」中允许
 - **Linux AppImage**: 添加执行权限 `chmod +x KiroAccountManager_amd64.AppImage`，然后直接运行
 - **Linux DEB**: 使用 `sudo dpkg -i KiroAccountManager_amd64.deb` 安装
@@ -467,9 +469,9 @@ npm run tauri build
 - 生产模式下支持系统托盘；关闭窗口后可能隐藏到托盘而不是直接退出
 
 构建产物位置：
-- Windows: `src-tauri/target/release/bundle/msi/`
+- Windows: `src-tauri/target/release/bundle/msi/` 和 `nsis/`
 - macOS: `src-tauri/target/release/bundle/dmg/`
-- Linux: `src-tauri/target/release/bundle/deb/` 或 `appimage/`
+- Linux: `src-tauri/target/release/bundle/deb/`、`rpm/` 或 `appimage/`
 
 ---
 

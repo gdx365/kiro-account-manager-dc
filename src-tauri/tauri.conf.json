@@ -71,7 +71,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "targets": ["msi", "app", "dmg", "deb", "rpm", "appimage"],
+    "targets": ["msi", "nsis", "app", "dmg", "deb", "rpm", "appimage"],
     "windows": {
       "allowDowngrades": false,
       "webviewInstallMode": {
@@ -81,6 +81,18 @@
       "wix": {
         "language": "zh-CN",
         "template": "wix/main.wxs"
+      },
+      "nsis": {
+        "language": "SimpChinese",
+        "displayLanguageSelector": false,
+        "installerIcon": "icons/icon.ico",
+        "installMode": "perUser",
+        "allowDowngrades": false,
+        "createDesktopShortcut": true,
+        "createStartMenuShortcut": true,
+        "license": null,
+        "headerImage": null,
+        "sidebarImage": null
       }
     },
     "macOS": {
