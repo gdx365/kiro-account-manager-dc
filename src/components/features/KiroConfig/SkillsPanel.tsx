@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useApp } from '../../../hooks/useApp'
 import { useDialog } from '../../../contexts/DialogContext'
-import { Puzzle, RefreshCw, Trash2, Save, Plus, X, FolderOpen, Globe, Download } from 'lucide-react'
+import { Puzzle, RefreshCw, Trash2, Save, Plus, X, Download, FolderOpen, Globe } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -13,10 +13,18 @@ import {
   getGradientAccentButton,
   getThemeSurfaceStyles} from './themeAccent'
 import { handleUiError } from '../../../utils/errorLogger'
+import { formatSize, ScopeBadge } from './shared'
 import React from 'react'
 
+interface SkillItem {
+  name: string
+  scope: string
+  content: string
+  size: number
+  extraFiles: string[]
+}
+
 // 格式化文件大小
-const formatSize = (bytes: number) => bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`
 
 // 解析 SKILL.md frontmatter（name + description 必填）
 const parseSkillFrontMatter = (content: string) => {
@@ -39,22 +47,7 @@ const buildSkillContent = (name: string, description: string, body: string) => {
 }
 
 // scope 徽章
-const ScopeBadge = ({ scope, accent }: any) => {
-  if (scope === 'project') {
-    return (
-      <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-500 border border-amber-500/30">
-        <FolderOpen size={10} />项目
-      </span>
-    )
-  }
-  return (
-    <span className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium ${accent.scopeBadge}`}>
-      <Globe size={10} />用户
-    </span>
-  )
-}
-
-function SkillsPanel({ onCountChange, projectDir }: any) {
+function SkillsPanel({ onCountChange, projectDir }: { onCountChange?: (count: number) => void; projectDir?: string }) {
   const { t, theme } = useApp()
   const accent = useMemo(() => getThemeAccent(theme), [theme])
   const { showConfirm, showSuccess } = useDialog()
@@ -70,9 +63,9 @@ function SkillsPanel({ onCountChange, projectDir }: any) {
     info: 'bg-primary/10'
   }
 
-  const [skills, setSkills] = useState<any[]>([])
+  const [skills, setSkills] = useState<SkillItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedSkill, setSelectedSkill] = useState<any>(null)
+  const [selectedSkill, setSelectedSkill] = useState<SkillItem | null>(null)
   const [editState, setEditState] = useState({ name: '', description: '', body: '' })
   const [saving, setSaving] = useState(false)
   const [hasChanges, setHasChanges] = useState(false)
@@ -82,7 +75,7 @@ function SkillsPanel({ onCountChange, projectDir }: any) {
   const loadSkills = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await invoke<any[]>('get_skills', { projectDir: projectDir || null })
+      const data = await invoke<SkillItem[]>('get_skills', { projectDir: projectDir || null })
       setSkills(data)
       onCountChange?.(data?.length || 0)
     } catch (e) {
@@ -99,7 +92,7 @@ function SkillsPanel({ onCountChange, projectDir }: any) {
     loadSkills()
   }, [loadSkills])
 
-  const handleSelect = async (skill: any) => {
+  const handleSelect = async (skill: SkillItem) => {
     if (hasChanges && !await showConfirm(t('skills.unsavedChanges'), t('skills.confirmSwitch'))) return
     setSelectedSkill(skill)
     const parsed = parseSkillFrontMatter(skill.content)
@@ -107,7 +100,7 @@ function SkillsPanel({ onCountChange, projectDir }: any) {
     setHasChanges(false)
   }
 
-  const updateEditState = (key: string, value: any) => {
+  const updateEditState = (key: string, value: unknown) => {
     const newState = { ...editState, [key]: value }
     setEditState(newState)
     if (selectedSkill) {
@@ -137,7 +130,7 @@ function SkillsPanel({ onCountChange, projectDir }: any) {
     }
   }
 
-  const handleDelete = async (skill: any) => {
+  const handleDelete = async (skill: SkillItem) => {
     if (!await showConfirm(t('skills.confirmDelete'), t('skills.confirmDeleteSkill', { name: skill.name }))) return
     try {
       await invoke('delete_skill', {
@@ -162,7 +155,7 @@ function SkillsPanel({ onCountChange, projectDir }: any) {
     const body = '\n<!-- 在此编写 Skill 指令 -->\n'
     const content = buildSkillContent(skillName, description, body)
     try {
-      const newSkill = await invoke<any>('create_skill', {
+      const newSkill = await invoke<SkillItem>('create_skill', {
         name: skillName,
         content,
         scope,
@@ -190,7 +183,7 @@ function SkillsPanel({ onCountChange, projectDir }: any) {
     return useProjectScope ? 'project' : 'user'
   }
 
-  const upsertImportedSkill = (imported: any) => {
+  const upsertImportedSkill = (imported: SkillItem) => {
     const nextSkills = [
       ...skills.filter(skill => !(skill.name === imported.name && skill.scope === imported.scope)),
       imported
@@ -209,7 +202,7 @@ function SkillsPanel({ onCountChange, projectDir }: any) {
       if (!selected) return
 
       const scope = await resolveImportScope()
-      const imported = await invoke<any>('import_skill_local', {
+      const imported = await invoke<SkillItem>('import_skill_local', {
         sourcePath: selected as string,
         scope,
         projectDir: projectDir || null,
@@ -221,10 +214,15 @@ function SkillsPanel({ onCountChange, projectDir }: any) {
     }
   }
 
-  const handleImportGithub = async ({ repoUrl, pathInRepo, branch, targetName }: any) => {
+  const handleImportGithub = async ({ repoUrl, pathInRepo, branch, targetName }: {
+    repoUrl: string
+    pathInRepo?: string
+    branch?: string
+    targetName?: string
+  }) => {
     try {
       const scope = await resolveImportScope()
-      const imported = await invoke<any>('import_skill_from_github', {
+      const imported = await invoke<SkillItem>('import_skill_from_github', {
         repoUrl: repoUrl.trim(),
         pathInRepo: pathInRepo.trim() || null,
         branch: branch.trim() || null,
@@ -482,7 +480,15 @@ function SkillsPanel({ onCountChange, projectDir }: any) {
 }
 
 // 创建 Skill 弹窗
-function CreateSkillModal({ onCreate, onClose, accent, accentGradientButtonClass, colors, t, hasProjectDir }: any) {
+function CreateSkillModal({ onCreate, onClose, accent, accentGradientButtonClass, colors, t, hasProjectDir }: {
+  onCreate: (name: string) => Promise<boolean>
+  onClose: () => void
+  accent: { ring: string }
+  accentGradientButtonClass: string
+  colors: { inputFocus: string; btnDisabled: string }
+  t: (key: string) => string
+  hasProjectDir: boolean
+}) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [scope, setScope] = useState('user')
@@ -561,7 +567,14 @@ function CreateSkillModal({ onCreate, onClose, accent, accentGradientButtonClass
   )
 }
 
-function ImportGithubSkillModal({ onImport, onClose, accent, accentGradientButtonClass, colors, t }: any) {
+function ImportGithubSkillModal({ onImport, onClose, accent, accentGradientButtonClass, colors, t }: {
+  onImport: (payload: { repoUrl: string; pathInRepo?: string; branch?: string; targetName?: string }) => Promise<boolean>
+  onClose: () => void
+  accent: { ring: string }
+  accentGradientButtonClass: string
+  colors: { inputFocus: string; btnDisabled: string }
+  t: (key: string) => string
+}) {
   const [repoUrl, setRepoUrl] = useState('')
   const [pathInRepo, setPathInRepo] = useState('')
   const [branch, setBranch] = useState('main')

@@ -2,6 +2,7 @@ import { Sun, Moon, Palette, Check } from 'lucide-react'
 import { Card, CardContent } from '../../ui/card'
 import { buildThemeOptions } from './settingsConstants'
 import React from 'react'
+import type { LucideIcon } from 'lucide-react'
 
 interface SettingsAppearanceProps {
   theme: string;
@@ -10,7 +11,7 @@ interface SettingsAppearanceProps {
 }
 
 function SettingsAppearance({ theme, setTheme, t }: SettingsAppearanceProps) {
-  const themeIconMap: Record<string, any> = { Sun, Moon, Palette }
+  const themeIconMap: Record<string, LucideIcon> = { Sun, Moon, Palette }
   const themeOptions = buildThemeOptions(t)
 
   return (
@@ -22,7 +23,7 @@ function SettingsAppearance({ theme, setTheme, t }: SettingsAppearanceProps) {
             <p className="text-xs text-muted-foreground mt-0.5">{t('settings.themeDesc')}</p>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full">
-            {themeOptions.map((opt: any) => {
+            {themeOptions.map((opt) => {
               const Icon = themeIconMap[opt.iconName]
               const isActive = theme === opt.key
               return (

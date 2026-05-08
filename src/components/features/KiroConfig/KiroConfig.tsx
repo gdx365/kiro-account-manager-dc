@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+﻿import { useState, useEffect, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useApp } from '../../../hooks/useApp'
@@ -14,7 +14,7 @@ import { handleUiError } from '../../../utils/errorLogger'
 import { getThemeAccent } from './themeAccent'
 import React from 'react'
 
-// 定义配置页面使用的色彩系统
+// 瀹氫箟閰嶇疆椤甸潰浣跨敤鐨勮壊褰╃郴缁?
 const colors = {
   inputFocus: 'focus:ring-primary/20 focus:border-primary',
   badgeActive: 'bg-primary/20 text-primary border border-primary/30',
@@ -36,19 +36,19 @@ function KiroConfig() {
   const [powersCount, setPowersCount] = useState(0)
   const [projectDir, setProjectDir] = useState<string | null>(null)
 
-  // 初始加载数量
+  // 鍒濆鍔犺浇鏁伴噺
   useEffect(() => {
-    invoke<any[]>('get_steering_files', { projectDir: projectDir || null }).then(files => setSteeringCount(files?.length || 0)).catch(() => {})
-    invoke<any[]>('get_skills', { projectDir: projectDir || null }).then(skills => setSkillsCount(skills?.length || 0)).catch(() => {})
-    invoke<any[]>('get_custom_agents', { projectDir: projectDir || null }).then(agents => setAgentsCount(agents?.length || 0)).catch(() => {})
+    invoke<unknown[]>('get_steering_files', { projectDir: projectDir || null }).then(files => setSteeringCount(files?.length || 0)).catch(() => {})
+    invoke<unknown[]>('get_skills', { projectDir: projectDir || null }).then(skills => setSkillsCount(skills?.length || 0)).catch(() => {})
+    invoke<unknown[]>('get_custom_agents', { projectDir: projectDir || null }).then(agents => setAgentsCount(agents?.length || 0)).catch(() => {})
 
     if (projectDir) {
-      invoke<any[]>('get_hooks', { projectDir }).then(hooks => setHooksCount(hooks?.length || 0)).catch(() => setHooksCount(0))
+      invoke<unknown[]>('get_hooks', { projectDir }).then(hooks => setHooksCount(hooks?.length || 0)).catch(() => setHooksCount(0))
     } else {
       setHooksCount(0)
     }
 
-    invoke<any[]>('get_powers').then(powers => setPowersCount(powers?.length || 0)).catch(() => {})
+    invoke<unknown[]>('get_powers').then(powers => setPowersCount(powers?.length || 0)).catch(() => {})
   }, [projectDir])
 
   useEffect(() => {
@@ -65,7 +65,7 @@ function KiroConfig() {
         setProjectDir(selected as string)
       }
     } catch (e) {
-      handleUiError('选择项目目录失败', e, { userMessage: '选择项目目录失败' })
+      handleUiError('閫夋嫨椤圭洰鐩綍澶辫触', e, { userMessage: '閫夋嫨椤圭洰鐩綍澶辫触' })
     }
   }
 
@@ -81,7 +81,7 @@ function KiroConfig() {
   return (
     <div className={`h-full flex flex-col max-w-full overflow-x-hidden glass-main`}>
       <div className="flex flex-col">
-        {/* 头部 */}
+        {/* 澶撮儴 */}
         <div className={`glass-card border-b border-border px-6 py-4 flex items-center gap-4`}>
 
           <div className={`w-10 h-10 bg-gradient-to-br ${accent.gradientFrom} ${accent.gradientTo} rounded-xl flex items-center justify-center shadow-lg ${accent.shadow}`}>
@@ -93,7 +93,7 @@ function KiroConfig() {
               {t('kiroConfig.subtitle')}
             </p>
           </div>
-          {/* 项目目录选择器 */}
+          {/* 椤圭洰鐩綍閫夋嫨鍣?*/}
           <div className="flex items-center gap-2">
             <button
               onClick={handleSelectProjectDir}
@@ -148,7 +148,7 @@ function KiroConfig() {
               })}
             </TabsList>
 
-            {/* 内容区 */}
+            {/* 鍐呭鍖?*/}
             <div className="mt-4 flex-1">
               <TabsContent value="mcp">
                 <MCPPanel onCountChange={setMcpCount} projectDir={projectDir} />

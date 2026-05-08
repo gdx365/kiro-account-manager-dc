@@ -141,6 +141,7 @@ pub(crate) struct ResponsesSessionEntry {
 }
 
 pub(crate) type ResponsesSessionStore = Arc<AsyncMutex<HashMap<String, ResponsesSessionEntry>>>;
+pub(crate) type UpstreamConversationCache = Arc<AsyncMutex<HashMap<String, String>>>;
 
 #[derive(Clone)]
 struct RouterState {
@@ -149,6 +150,7 @@ struct RouterState {
     last_error: Arc<AsyncMutex<Option<String>>>,
     http: Client,
     responses_sessions: ResponsesSessionStore,
+    upstream_conversations: UpstreamConversationCache,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -613,6 +615,7 @@ async fn spawn_runtime(config: GatewayConfig) -> Result<GatewayRuntime, String> 
     let request_count = Arc::new(AtomicU64::new(0));
     let last_error = Arc::new(AsyncMutex::new(None));
     let responses_sessions = Arc::new(AsyncMutex::new(HashMap::new()));
+    let upstream_conversations = Arc::new(AsyncMutex::new(HashMap::new()));
 
     let http = build_streaming_http_client()
         .map_err(|e| format!("初始化 HTTP 客户端失败: {e}"))?;
@@ -623,6 +626,7 @@ async fn spawn_runtime(config: GatewayConfig) -> Result<GatewayRuntime, String> 
         last_error: last_error.clone(),
         http,
         responses_sessions,
+        upstream_conversations,
     };
 
     let app = router(state);
@@ -779,7 +783,7 @@ mod tests {
         fn new() -> Self {
             let guard = REQUEST_LOG_TEST_MUTEX
                 .lock()
-                .expect("request log test mutex should lock");
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             let dir = std::env::temp_dir().join(format!(
                 "kiro-gateway-request-log-test-{}-{}",
                 process::id(),
@@ -816,6 +820,7 @@ mod tests {
             last_error: Arc::new(AsyncMutex::new(None)),
             http: Client::new(),
             responses_sessions: Arc::new(AsyncMutex::new(HashMap::new())),
+            upstream_conversations: Arc::new(AsyncMutex::new(HashMap::new())),
         }
     }
 
@@ -840,6 +845,7 @@ mod tests {
             last_error: Arc::new(AsyncMutex::new(None)),
             http: Client::new(),
             responses_sessions: Arc::new(AsyncMutex::new(HashMap::new())),
+            upstream_conversations: Arc::new(AsyncMutex::new(HashMap::new())),
         }
     }
 
@@ -990,8 +996,8 @@ mod tests {
             "request body should not be logged by default"
         );
         assert!(
-            logs[0].response_body.is_none(),
-            "response body should not be logged by default"
+            logs[0].response_body.is_some(),
+            "response body should be logged by default"
         );
     }
 
@@ -1030,8 +1036,8 @@ mod tests {
             "request body should not be logged by default"
         );
         assert!(
-            logs[0].response_body.is_none(),
-            "response body should not be logged by default"
+            logs[0].response_body.is_some(),
+            "response body should be logged by default"
         );
         assert!(
             state.last_error.lock().await.is_some(),

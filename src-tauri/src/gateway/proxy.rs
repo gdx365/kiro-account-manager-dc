@@ -243,6 +243,72 @@ fn extract_tool_result_ids_from_request(request: &NormalizedRequest) -> HashSet<
         .collect()
 }
 
+fn looks_like_context_compaction_request(request: &NormalizedRequest) -> bool {
+    request.messages.iter().any(|message| {
+        if message.role != "user" {
+            return false;
+        }
+        let text = message
+            .content
+            .as_ref()
+            .map(|value| value.to_string())
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        text.contains("context checkpoint compaction")
+            || text.contains("create a new anchored summary")
+            || text.contains("conversation history above")
+    })
+}
+
+fn sanitize_messages_for_compaction(messages: &[NormalizedMessage]) -> Vec<NormalizedMessage> {
+    messages
+        .iter()
+        .filter(|message| matches!(message.role.as_str(), "system" | "user" | "assistant"))
+        .map(|message| NormalizedMessage {
+            role: message.role.clone(),
+            content: message.content.clone(),
+            tool_calls: None,
+            tool_call_id: None,
+            metadata: None,
+        })
+        .collect()
+}
+
+fn extract_compaction_text(content: &Option<Value>) -> String {
+    match content {
+        None => String::new(),
+        Some(Value::String(text)) => text.clone(),
+        Some(Value::Array(items)) => {
+            let mut parts = Vec::new();
+            for item in items {
+                if let Some(text) = item.get("text").and_then(Value::as_str) {
+                    if !text.trim().is_empty() {
+                        parts.push(text.to_string());
+                    }
+                }
+            }
+            parts.join("\n")
+        }
+        Some(other) => other.to_string(),
+    }
+}
+
+fn sanitize_messages_for_anthropic_compaction(
+    messages: &[NormalizedMessage],
+) -> Vec<NormalizedMessage> {
+    messages
+        .iter()
+        .filter(|message| matches!(message.role.as_str(), "system" | "user" | "assistant"))
+        .map(|message| NormalizedMessage {
+            role: message.role.clone(),
+            content: Some(Value::String(extract_compaction_text(&message.content))),
+            tool_calls: None,
+            tool_call_id: None,
+            metadata: None,
+        })
+        .collect()
+}
+
 async fn infer_responses_upstream_conversation_id(
     state: &RouterState,
     request: &NormalizedRequest,
@@ -280,6 +346,40 @@ async fn infer_responses_upstream_conversation_id(
     }
 
     best_match.map(|(_, conversation_id)| conversation_id)
+}
+
+fn conversation_cache_key(client_addr: SocketAddr, model: &str, format: ResponseFormat) -> String {
+    let endpoint = match format {
+        ResponseFormat::Anthropic => "messages",
+        ResponseFormat::OpenAI => "chat/completions",
+        ResponseFormat::Responses => "responses",
+    };
+    format!("{}|{}|{}", endpoint, client_addr.ip(), model.trim().to_ascii_lowercase())
+}
+
+async fn read_cached_upstream_conversation_id(
+    state: &RouterState,
+    client_addr: SocketAddr,
+    model: &str,
+    format: ResponseFormat,
+) -> Option<String> {
+    let key = conversation_cache_key(client_addr, model, format);
+    state.upstream_conversations.lock().await.get(&key).cloned()
+}
+
+async fn write_cached_upstream_conversation_id(
+    state: &RouterState,
+    client_addr: SocketAddr,
+    model: &str,
+    format: ResponseFormat,
+    conversation_id: &str,
+) {
+    let key = conversation_cache_key(client_addr, model, format);
+    state
+        .upstream_conversations
+        .lock()
+        .await
+        .insert(key, conversation_id.to_string());
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -540,7 +640,7 @@ fn write_request_log(
         outcome: outcome.to_string(),
         duration_ms,
         error: error.map(str::to_string),
-        request_body: None,
+        request_body: truncate_log_body(context.request_body),
         response_body: truncate_log_body(response_body),
     };
     let _ = append_gateway_request_log(&entry);
@@ -674,6 +774,7 @@ pub async fn proxy_handler(
     payload: Value,
     format: ResponseFormat,
 ) -> Response {
+    let emit_context_usage_for_anthropic = is_claude_code_client(&headers);
     let request_index = state
         .request_count
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -761,40 +862,76 @@ pub async fn proxy_handler(
     let mut resolved_upstream_conversation_id: Option<String> = None;
     let request = if matches!(format, ResponseFormat::Responses) {
         let mut resumed = incoming_request.clone();
-        if let Some(previous_response_id) = incoming_request.previous_response_id.as_deref() {
-            resolved_upstream_conversation_id =
-                resolve_upstream_conversation_id_from_response_id(&state, previous_response_id)
-                    .await;
-            // Continuation turns should send only current delta input.
-            resumed.messages = incoming_request.messages.clone();
-        } else {
-            resolved_upstream_conversation_id =
-                infer_responses_upstream_conversation_id(&state, &incoming_request).await;
-            if resolved_upstream_conversation_id.is_some() {
+        let is_compaction = looks_like_context_compaction_request(&incoming_request);
+        if !is_compaction {
+            if let Some(previous_response_id) = incoming_request.previous_response_id.as_deref() {
+                resolved_upstream_conversation_id =
+                    resolve_upstream_conversation_id_from_response_id(&state, previous_response_id)
+                        .await;
                 // Tool result follow-up should also avoid replaying merged history.
                 resumed.messages = incoming_request.messages.clone();
             } else {
-                resumed.messages = restore_responses_session_messages(&state, &incoming_request).await;
+                resolved_upstream_conversation_id =
+                    infer_responses_upstream_conversation_id(&state, &incoming_request).await;
+                if resolved_upstream_conversation_id.is_some() {
+                    // Tool result follow-up should also avoid replaying merged history.
+                    resumed.messages = incoming_request.messages.clone();
+                } else {
+                    resumed.messages =
+                        restore_responses_session_messages(&state, &incoming_request).await;
+                }
             }
-        }
-        let tools_missing = resumed
-            .tools
-            .as_ref()
-            .map(|tools| tools.is_empty())
-            .unwrap_or(true);
-        if tools_missing || resumed.tool_choice.is_none() {
-            let (inherited_tools, inherited_tool_choice) =
-                restore_responses_session_request_options(&state, &incoming_request).await;
-            if tools_missing {
-                resumed.tools = inherited_tools;
+            let tools_missing = resumed
+                .tools
+                .as_ref()
+                .map(|tools| tools.is_empty())
+                .unwrap_or(true);
+            if tools_missing || resumed.tool_choice.is_none() {
+                let (inherited_tools, inherited_tool_choice) =
+                    restore_responses_session_request_options(&state, &incoming_request).await;
+                if tools_missing {
+                    resumed.tools = inherited_tools;
+                }
+                if resumed.tool_choice.is_none() {
+                    resumed.tool_choice = inherited_tool_choice;
+                }
             }
-            if resumed.tool_choice.is_none() {
-                resumed.tool_choice = inherited_tool_choice;
-            }
+        } else {
+            // Compaction should be plain text history to match /v1/messages-compatible shape.
+            resumed.messages = sanitize_messages_for_compaction(&incoming_request.messages);
+            resolved_upstream_conversation_id = None;
         }
         resumed
     } else {
-        incoming_request.clone()
+        let mut passthrough = incoming_request.clone();
+        if looks_like_context_compaction_request(&incoming_request) {
+            match format {
+                ResponseFormat::Anthropic => {
+                    passthrough.messages =
+                        sanitize_messages_for_anthropic_compaction(&incoming_request.messages);
+                    passthrough.tools = None;
+                    passthrough.tool_choice = None;
+                }
+                ResponseFormat::OpenAI => {
+                    passthrough.messages =
+                        sanitize_messages_for_compaction(&incoming_request.messages);
+                    passthrough.tools = None;
+                    passthrough.tool_choice = None;
+                }
+                ResponseFormat::Responses => {}
+            }
+        } else if extract_tool_result_ids_from_request(&incoming_request).len() > 0
+            || incoming_request.messages.len() > 1
+        {
+            resolved_upstream_conversation_id = read_cached_upstream_conversation_id(
+                &state,
+                client_addr,
+                &incoming_request.model,
+                format,
+            )
+            .await;
+        }
+        passthrough
     };
 
     let request_log_context = RequestLogContext {
@@ -830,7 +967,7 @@ pub async fn proxy_handler(
     };
 
     if has_server_web_search_tool(&request) {
-        let outcome = match execute_request_with_server_tools(&state, &upstream, &request).await {
+        let mut outcome = match execute_request_with_server_tools(&state, &upstream, &request).await {
             Ok(outcome) => outcome,
             Err((status, error_type, message)) => {
                 return gateway_error_with_log(
@@ -866,7 +1003,7 @@ pub async fn proxy_handler(
                 None,
                 Some(response_body.as_str()),
             );
-            let body = format!("data: {}\n\ndata: [DONE]\n\n", response);
+            let body = format!("event: response.completed\ndata: {}\n\n", response);
             return Response::builder()
                 .status(StatusCode::OK)
                 .header(
@@ -877,6 +1014,10 @@ pub async fn proxy_handler(
                 .header(header::CONNECTION, HeaderValue::from_static("keep-alive"))
                 .body(Body::from(body))
                 .unwrap_or_else(|_| Response::new(Body::empty()));
+        }
+
+        if matches!(format, ResponseFormat::Responses) {
+            apply_usage_fallback_for_responses(&mut outcome.aggregated, &incoming_request.messages);
         }
 
         let response = match format {
@@ -926,58 +1067,118 @@ pub async fn proxy_handler(
         return Json(response).into_response();
     }
 
-    let mut upstream_payload =
-        match build_kiro_payload(&state.http, &request, upstream.profile_arn.clone()).await {
-            Ok(payload) => payload,
-            Err(message) => {
-                let sanitized = sanitize_error(&message);
+    let mut request_for_upstream = request.clone();
+    let mut tried_model_fallback = false;
+    let mut upstream_conversation_id: Option<String> = None;
+    let mut upstream_request_body_owned = String::new();
+    let mut sent_request_messages = request_for_upstream.messages.clone();
+    let upstream_resp = loop {
+        let mut upstream_payload =
+            match build_kiro_payload(&state.http, &request_for_upstream, upstream.profile_arn.clone()).await {
+                Ok(payload) => payload,
+                Err(message) => {
+                    let sanitized = sanitize_error(&message);
+                    return gateway_error_with_log(
+                        &state,
+                        format,
+                        &upstream_log_context,
+                        GatewayErrorDetails {
+                            status: StatusCode::BAD_REQUEST,
+                            error_type: "invalid_request_error",
+                            message: &sanitized,
+                            response_body: None,
+                        },
+                    )
+                    .await;
+                }
+            };
+        if let Some(conversation_id) = resolved_upstream_conversation_id.clone() {
+            upstream_payload.conversation_state.conversation_id = conversation_id;
+        }
+        upstream_conversation_id = Some(upstream_payload.conversation_state.conversation_id.clone());
+        let upstream_request_body = serde_json::to_string_pretty(&upstream_payload)
+            .unwrap_or_else(|_| "[failed to serialize upstream payload]".to_string());
+        let payload_log_context = RequestLogContext {
+            request_body: Some(upstream_request_body.as_str()),
+            ..upstream_log_context.clone()
+        };
+
+        match send_generate_request(&state.http, &upstream, &upstream_payload).await {
+            Ok(resp) => {
+                upstream_request_body_owned = upstream_request_body;
+                sent_request_messages = request_for_upstream.messages.clone();
+                break resp;
+            }
+            Err((status, error_type, message, upstream_response_body)) => {
+                let should_retry_model_fallback = !tried_model_fallback
+                    && is_invalid_model_error(status, &message, upstream_response_body.as_deref())
+                    && request_for_upstream.model != "claude-sonnet-4.5";
+                if should_retry_model_fallback {
+                    log::warn!(
+                        "Invalid model from upstream, retrying with fallback model: {} -> claude-sonnet-4.5 (format={:?})",
+                        request_for_upstream.model,
+                        format
+                    );
+                    request_for_upstream.model = "claude-sonnet-4.5".to_string();
+                    tried_model_fallback = true;
+                    continue;
+                }
+
+                let should_retry_overflow = matches!(format, ResponseFormat::OpenAI | ResponseFormat::Anthropic)
+                    && is_input_too_long_error(status, &message, upstream_response_body.as_deref());
+                if should_retry_overflow {
+                    let current_chars: usize = request_for_upstream
+                        .messages
+                        .iter()
+                        .map(|message| extract_plain_text(message.content.as_ref()).chars().count())
+                        .sum();
+                    let target_chars = (current_chars / 2).max(20_000);
+                    let shrunk_messages =
+                        shrink_messages_for_overflow_retry(&request_for_upstream.messages, target_chars);
+                    if shrunk_messages.len() < request_for_upstream.messages.len() {
+                        log::warn!(
+                            "Input too long, retrying with trimmed history: format={:?}, messages {} -> {}, chars {} -> {}",
+                            format,
+                            request_for_upstream.messages.len(),
+                            shrunk_messages.len(),
+                            current_chars,
+                            target_chars
+                        );
+                        request_for_upstream.messages = shrunk_messages;
+                        continue;
+                    }
+                }
                 return gateway_error_with_log(
                     &state,
                     format,
-                    &upstream_log_context,
+                    &payload_log_context,
                     GatewayErrorDetails {
-                        status: StatusCode::BAD_REQUEST,
-                        error_type: "invalid_request_error",
-                        message: &sanitized,
-                        response_body: None,
+                        status,
+                        error_type,
+                        message: &message,
+                        response_body: upstream_response_body.as_deref(),
                     },
                 )
                 .await;
             }
-        };
-    if matches!(format, ResponseFormat::Responses) {
-        if let Some(conversation_id) = resolved_upstream_conversation_id.clone() {
-            upstream_payload.conversation_state.conversation_id = conversation_id;
         }
-    }
-    let upstream_conversation_id = upstream_payload.conversation_state.conversation_id.clone();
-    let upstream_request_body = serde_json::to_string_pretty(&upstream_payload)
-        .unwrap_or_else(|_| "[failed to serialize upstream payload]".to_string());
+    };
     let upstream_payload_log_context = RequestLogContext {
-        request_body: Some(upstream_request_body.as_str()),
+        request_body: Some(upstream_request_body_owned.as_str()),
         ..upstream_log_context.clone()
     };
 
-    let upstream_resp = match send_generate_request(&state.http, &upstream, &upstream_payload).await
-    {
-        Ok(resp) => resp,
-        Err((status, error_type, message, upstream_response_body)) => {
-            return gateway_error_with_log(
+    if request.stream {
+        if let Some(conversation_id) = upstream_conversation_id.as_deref() {
+            write_cached_upstream_conversation_id(
                 &state,
+                client_addr,
+                &request.model,
                 format,
-                &upstream_payload_log_context,
-                GatewayErrorDetails {
-                    status,
-                    error_type,
-                    message: &message,
-                    response_body: upstream_response_body.as_deref(),
-                },
+                conversation_id,
             )
             .await;
         }
-    };
-
-    if request.stream {
         write_request_log(
             &upstream_payload_log_context,
             upstream_resp.status(),
@@ -989,13 +1190,14 @@ pub async fn proxy_handler(
             state.clone(),
             upstream_resp,
             format,
+            emit_context_usage_for_anthropic,
             request.model.clone(),
-            incoming_request.messages.clone(),
+            sent_request_messages,
             request.tools.clone(),
             request.tool_choice.clone(),
             incoming_request.previous_response_id.clone(),
             Vec::new(),
-            Some(upstream_conversation_id.clone()),
+            upstream_conversation_id,
             StreamLogMeta {
                 request_index: upstream_payload_log_context.request_index,
                 endpoint: upstream_payload_log_context.endpoint.to_string(),
@@ -1046,7 +1248,11 @@ pub async fn proxy_handler(
         .await;
     }
 
-    let aggregated = aggregate_kiro_response(&body);
+    let mut aggregated = aggregate_kiro_response(&body);
+    if matches!(format, ResponseFormat::Responses) {
+        apply_usage_fallback_for_responses(&mut aggregated, &incoming_request.messages);
+    }
+
     let response = match format {
         ResponseFormat::Anthropic => build_anthropic_response(&request.model, &aggregated, &[]),
         ResponseFormat::Responses => build_responses_response_with_ids(
@@ -1064,13 +1270,13 @@ pub async fn proxy_handler(
         }
     };
     if matches!(format, ResponseFormat::Responses) {
-        persist_responses_session_entry(
-            &state,
-            &response_id,
-            Some(upstream_conversation_id),
-            incoming_request.messages.clone(),
-            request.tools.clone(),
-            request.tool_choice.clone(),
+            persist_responses_session_entry(
+                &state,
+                &response_id,
+                upstream_conversation_id.clone(),
+                incoming_request.messages.clone(),
+                request.tools.clone(),
+                request.tool_choice.clone(),
             incoming_request.previous_response_id.clone(),
             &aggregated,
         )
@@ -1083,6 +1289,16 @@ pub async fn proxy_handler(
         None,
         Some(body.as_str()),
     );
+    if let Some(conversation_id) = upstream_conversation_id.as_deref() {
+        write_cached_upstream_conversation_id(
+            &state,
+            client_addr,
+            &request.model,
+            format,
+            conversation_id,
+        )
+        .await;
+    }
     Json(response).into_response()
 }
 
@@ -2260,25 +2476,6 @@ fn build_responses_citation_annotations(citations: &[stream::AggregatedCitation]
         .collect()
 }
 
-fn build_responses_annotation_added_event(
-    response_id: &str,
-    message_id: &str,
-    annotation: Value,
-    annotation_index: usize,
-    sequence_number: usize,
-) -> Value {
-    json!({
-        "type": "response.output_text.annotation.added",
-        "response_id": response_id,
-        "item_id": message_id,
-        "output_index": 0,
-        "content_index": 0,
-        "annotation_index": annotation_index,
-        "annotation": annotation,
-        "sequence_number": sequence_number
-    })
-}
-
 fn extract_web_search_sources(server_tool_calls: &[ServerToolCall]) -> Vec<WebSearchSource> {
     let mut seen = HashSet::new();
     let mut sources = Vec::new();
@@ -2416,15 +2613,114 @@ fn build_responses_message_content(
             "summary": aggregated.thinking
         }));
     }
-    for (id, name, arguments) in &aggregated.tool_calls {
-        content.push(json!({
+    content.extend(aggregated.tool_calls.iter().map(|(id, name, arguments)| {
+        json!({
             "type": "function_call",
+            "status": "completed",
             "call_id": id,
             "name": name,
             "arguments": arguments
-        }));
-    }
+        })
+    }));
     content
+}
+
+fn is_input_too_long_error(
+    status: StatusCode,
+    message: &str,
+    upstream_response_body: Option<&str>,
+) -> bool {
+    if status != StatusCode::BAD_REQUEST {
+        return false;
+    }
+    let message_lower = message.to_ascii_lowercase();
+    if message_lower.contains("input is too long") {
+        return true;
+    }
+    upstream_response_body
+        .map(|body| body.to_ascii_lowercase().contains("content_length_exceeds_threshold"))
+        .unwrap_or(false)
+}
+
+fn is_invalid_model_error(
+    status: StatusCode,
+    message: &str,
+    upstream_response_body: Option<&str>,
+) -> bool {
+    if status != StatusCode::BAD_REQUEST {
+        return false;
+    }
+    let message_lower = message.to_ascii_lowercase();
+    if message_lower.contains("invalid model") {
+        return true;
+    }
+    upstream_response_body
+        .map(|body| body.to_ascii_lowercase().contains("invalid_model_id"))
+        .unwrap_or(false)
+}
+
+fn shrink_messages_for_overflow_retry(messages: &[NormalizedMessage], target_chars: usize) -> Vec<NormalizedMessage> {
+    if messages.is_empty() {
+        return Vec::new();
+    }
+
+    let system_messages: Vec<NormalizedMessage> = messages
+        .iter()
+        .filter(|message| message.role == "system")
+        .cloned()
+        .collect();
+
+    let non_system: Vec<&NormalizedMessage> = messages
+        .iter()
+        .filter(|message| message.role != "system")
+        .collect();
+
+    let mut selected: Vec<NormalizedMessage> = Vec::new();
+    let mut selected_chars = 0usize;
+
+    for message in non_system.iter().rev() {
+        let message_chars = extract_plain_text(message.content.as_ref()).chars().count();
+        let must_keep_recent = selected.len() < 6;
+        if must_keep_recent || selected_chars + message_chars <= target_chars {
+            selected.push((**message).clone());
+            selected_chars += message_chars;
+        } else {
+            break;
+        }
+    }
+
+    selected.reverse();
+    let mut combined = system_messages;
+    combined.extend(selected);
+    combined
+}
+
+fn apply_usage_fallback_for_responses(
+    aggregated: &mut stream::AggregatedKiroResponse,
+    request_messages: &[NormalizedMessage],
+) {
+    if aggregated.input_tokens > 0 || aggregated.output_tokens > 0 {
+        return;
+    }
+
+    let request_chars: usize = request_messages
+        .iter()
+        .map(|message| extract_plain_text(message.content.as_ref()).chars().count())
+        .sum();
+    let output_chars =
+        aggregated.text.chars().count().saturating_add(aggregated.thinking.chars().count());
+
+    // Keep a conservative non-zero estimate when upstream does not provide usage events.
+    aggregated.input_tokens = ((request_chars as i32) / 4).max(1);
+    aggregated.output_tokens = ((output_chars as i32) / 4).max(1);
+}
+
+fn estimate_request_input_tokens(request_messages: &[NormalizedMessage]) -> i32 {
+    let request_chars: usize = request_messages
+        .iter()
+        .map(|message| extract_plain_text(message.content.as_ref()).chars().count())
+        .sum();
+    ((request_chars as i32) / 4).max(1)
 }
 
 #[allow(dead_code)]
@@ -2456,28 +2752,21 @@ fn build_responses_response_with_ids(
 ) -> Value {
     let output_text = build_responses_output_text(aggregated, server_tool_calls);
     let content = build_responses_message_content(aggregated, server_tool_calls);
+    let include_assistant_message = !content.is_empty() || aggregated.tool_calls.is_empty();
 
     let mut output: Vec<Value> = server_tool_calls
         .iter()
         .filter(|call| call.name == "web_search")
         .map(build_responses_web_search_call)
         .collect();
-    output.push(json!({
-        "id": message_id,
-        "type": "message",
-        "role": "assistant",
-        "content": content
-    }));
-    output.extend(aggregated.tool_calls.iter().map(|(id, name, arguments)| {
-        json!({
-            "id": id,
-            "type": "function_call",
-            "status": "completed",
-            "call_id": id,
-            "name": name,
-            "arguments": arguments
-        })
-    }));
+    if include_assistant_message {
+        output.push(json!({
+            "id": message_id,
+            "type": "message",
+            "role": "assistant",
+            "content": content
+        }));
+    }
 
     json!({
         "id": response_id,
@@ -2694,10 +2983,28 @@ fn short_uuid() -> String {
     uuid::Uuid::new_v4().to_string().replace('-', "")
 }
 
+fn is_claude_code_client(headers: &HeaderMap) -> bool {
+    let user_agent = headers
+        .get(header::USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let billing_header = headers
+        .get("x-anthropic-billing-header")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    user_agent.contains("claude")
+        || billing_header.contains("claude-vscode")
+        || billing_header.contains("claude-code")
+}
+
 fn stream_proxy_response(
     state: RouterState,
     upstream_resp: reqwest::Response,
     format: ResponseFormat,
+    emit_context_usage_for_anthropic: bool,
     model: String,
     request_messages: Vec<NormalizedMessage>,
     request_tools: Option<Vec<Tool>>,
@@ -2720,7 +3027,7 @@ fn stream_proxy_response(
         let mut thinking_block_index: Option<usize> = None;
         let mut tool_block_indexes: HashMap<String, usize> = HashMap::new();
         let mut saw_tool_calls = false;
-        let mut input_tokens = 0i32;
+        let mut input_tokens = estimate_request_input_tokens(&request_messages);
         let mut output_tokens = 0i32;
         let anthropic_id = format!("msg_{}", short_uuid());
         let response_id = format!("resp_{}", short_uuid());
@@ -2731,6 +3038,7 @@ fn stream_proxy_response(
         let mut responses_sequence_number = 0usize;
         let mut responses_next_output_index = 1usize;
         let mut responses_tool_output_indexes: HashMap<String, usize> = HashMap::new();
+        let mut responses_tool_item_ids: HashMap<String, String> = HashMap::new();
         let mut responses_tool_added_emitted: HashSet<String> = HashSet::new();
         let mut responses_tool_done_emitted: HashSet<String> = HashSet::new();
         let mut stream_failed = false;
@@ -2747,7 +3055,7 @@ fn stream_proxy_response(
                     "output": []
                 }
             });
-            if !send_data(&tx, &created.to_string()).await {
+            if !send_responses_event(&tx, &mut responses_sequence_number, created).await {
                 return;
             }
 
@@ -2763,7 +3071,7 @@ fn stream_proxy_response(
                     "content": []
                 }
             });
-            if !send_data(&tx, &output_item_added.to_string()).await {
+            if !send_responses_event(&tx, &mut responses_sequence_number, output_item_added).await {
                 return;
             }
         }
@@ -2908,9 +3216,13 @@ fn stream_proxy_response(
                                         }
                                         KiroEvent::ContextUsage { percentage } => {
                                             aggregated.context_usage_percentage = Some(percentage);
-                                            if matches!(format, ResponseFormat::Anthropic) {
-                                                let data =
-                                                    json!({"type":"context_usage","percentage":percentage});
+                                            if emit_context_usage_for_anthropic
+                                                && matches!(format, ResponseFormat::Anthropic)
+                                            {
+                                                let data = json!({
+                                                    "type":"context_usage",
+                                                    "percentage":percentage
+                                                });
                                                 send_event(
                                                     &tx,
                                                     Some("context_usage"),
@@ -2927,10 +3239,12 @@ fn stream_proxy_response(
                                                 &model,
                                                 &anthropic_id,
                                                 &response_id,
+                                                &message_id,
                                                 &completion_id,
                                                 created,
                                                 &text,
                                                 true,
+                                                &mut responses_sequence_number,
                                                 &mut message_started,
                                                 &mut next_block_index,
                                                 &mut text_block_index,
@@ -2949,10 +3263,12 @@ fn stream_proxy_response(
                                                     &model,
                                                     &anthropic_id,
                                                     &response_id,
+                                                    &message_id,
                                                     &completion_id,
                                                     created,
                                                     &segment.content,
                                                     segment.segment_type == SegmentType::Thinking,
+                                                    &mut responses_sequence_number,
                                                     &mut message_started,
                                                     &mut next_block_index,
                                                     &mut text_block_index,
@@ -3007,27 +3323,14 @@ fn stream_proxy_response(
                                                     .await;
                                                 }
                                                 ResponseFormat::Responses => {
-                                                    if responses_tool_added_emitted
-                                                        .insert(id.clone())
-                                                    {
+                                                    if responses_tool_added_emitted.insert(id.clone()) {
+                                                        let item_id = format!("fc_{id}");
+                                                        responses_tool_item_ids
+                                                            .insert(id.clone(), item_id);
                                                         let output_index = responses_next_output_index;
                                                         responses_next_output_index += 1;
                                                         responses_tool_output_indexes
                                                             .insert(id.clone(), output_index);
-                                                        let data = json!({
-                                                            "type": "response.output_item.added",
-                                                            "response_id": response_id,
-                                                            "output_index": output_index,
-                                                            "item": {
-                                                                "id": id,
-                                                                "type": "function_call",
-                                                                "status": "in_progress",
-                                                                "call_id": id,
-                                                                "name": name,
-                                                                "arguments": ""
-                                                            }
-                                                        });
-                                                        send_data(&tx, &data.to_string()).await;
                                                     }
                                                 }
                                                 ResponseFormat::OpenAI => {
@@ -3068,21 +3371,7 @@ fn stream_proxy_response(
                                                     }
                                                 }
                                                 ResponseFormat::Responses => {
-                                                    if let Some(output_index) =
-                                                        responses_tool_output_indexes
-                                                            .get(&id)
-                                                            .copied()
-                                                    {
-                                                        let data = json!({
-                                                            "type": "response.function_call_arguments.delta",
-                                                            "response_id": response_id,
-                                                            "item_id": id,
-                                                            "output_index": output_index,
-                                                            "call_id": id,
-                                                            "delta": input_delta
-                                                        });
-                                                        send_data(&tx, &data.to_string()).await;
-                                                    }
+                                                    let _ = input_delta;
                                                 }
                                                 ResponseFormat::OpenAI => {
                                                     // OpenAI 格式在最后统一发送 tool_calls
@@ -3126,20 +3415,36 @@ fn stream_proxy_response(
                                                                 responses_next_output_index += 1;
                                                                 idx
                                                             });
-                                                        let done_args = build_stream_responses_function_call_arguments_done_event(
-                                                            &response_id,
-                                                            &id,
-                                                            output_index,
-                                                            &id,
-                                                            &input,
-                                                        );
-                                                        send_data(&tx, &done_args.to_string()).await;
-                                                        let data = json!({
+                                                        let item_id = responses_tool_item_ids
+                                                            .remove(&id)
+                                                            .unwrap_or_else(|| format!("fc_{id}"));
+
+                                                        let added = json!({
+                                                            "type": "response.output_item.added",
+                                                            "response_id": response_id,
+                                                            "output_index": output_index,
+                                                            "item": {
+                                                                "id": item_id,
+                                                                "type": "function_call",
+                                                                "status": "in_progress",
+                                                                "call_id": id,
+                                                                "name": name,
+                                                                "arguments": input
+                                                            }
+                                                        });
+                                                        send_responses_event(
+                                                            &tx,
+                                                            &mut responses_sequence_number,
+                                                            added,
+                                                        )
+                                                        .await;
+
+                                                        let done = json!({
                                                             "type": "response.output_item.done",
                                                             "response_id": response_id,
                                                             "output_index": output_index,
                                                             "item": {
-                                                                "id": id,
+                                                                "id": item_id,
                                                                 "type": "function_call",
                                                                 "status": "completed",
                                                                 "call_id": id,
@@ -3147,7 +3452,12 @@ fn stream_proxy_response(
                                                                 "arguments": input
                                                             }
                                                         });
-                                                        send_data(&tx, &data.to_string()).await;
+                                                        send_responses_event(
+                                                            &tx,
+                                                            &mut responses_sequence_number,
+                                                            done,
+                                                        )
+                                                        .await;
                                                     }
                                                 }
                                             }
@@ -3216,23 +3526,7 @@ fn stream_proxy_response(
                                                     }
                                                 }
                                                 ResponseFormat::Responses => {
-                                                    if let Some(annotation) =
-                                                        build_responses_citation_annotations(
-                                                            std::slice::from_ref(&citation),
-                                                        )
-                                                        .into_iter()
-                                                        .next()
-                                                    {
-                                                        let data = build_responses_annotation_added_event(
-                                                            &response_id,
-                                                            &message_id,
-                                                            annotation,
-                                                            aggregated.citations.len() - 1,
-                                                            responses_sequence_number,
-                                                        );
-                                                        responses_sequence_number += 1;
-                                                        send_data(&tx, &data.to_string()).await;
-                                                    }
+                                                    let _ = citation;
                                                 }
                                                 ResponseFormat::OpenAI => {
                                                     // OpenAI 格式暂不支持 citations
@@ -3292,10 +3586,12 @@ fn stream_proxy_response(
                 &model,
                 &anthropic_id,
                 &response_id,
+                &message_id,
                 &completion_id,
                 created,
                 &segment.content,
                 segment.segment_type == SegmentType::Thinking,
+                &mut responses_sequence_number,
                 &mut message_started,
                 &mut next_block_index,
                 &mut text_block_index,
@@ -3306,6 +3602,9 @@ fn stream_proxy_response(
             .await;
         }
         aggregated.tool_calls = stream::deduplicate_tool_calls(aggregated.tool_calls);
+        apply_usage_fallback_for_responses(&mut aggregated, &request_messages);
+        input_tokens = aggregated.input_tokens;
+        output_tokens = aggregated.output_tokens;
 
         match format {
             ResponseFormat::Anthropic => {
@@ -3331,29 +3630,33 @@ fn stream_proxy_response(
                         &response_id,
                         &output_text.text,
                     );
-                    send_data(&tx, &text_done.to_string()).await;
+                    send_responses_event(&tx, &mut responses_sequence_number, text_done).await;
                 }
                 if !aggregated.thinking.is_empty() {
                     let reasoning_done = build_stream_responses_reasoning_done_event(
                         &response_id,
                         &aggregated.thinking,
                     );
-                    send_data(&tx, &reasoning_done.to_string()).await;
+                    send_responses_event(&tx, &mut responses_sequence_number, reasoning_done).await;
                 }
                 let content = build_responses_message_content(&aggregated, &server_tool_calls);
-                let output_item_done = json!({
-                    "type": "response.output_item.done",
-                    "response_id": response_id,
-                    "output_index": 0,
-                    "item": {
-                        "id": message_id,
-                        "type": "message",
-                        "status": "completed",
-                        "role": "assistant",
-                        "content": content
-                    }
-                });
-                send_data(&tx, &output_item_done.to_string()).await;
+                let include_assistant_message =
+                    !content.is_empty() || aggregated.tool_calls.is_empty();
+                if include_assistant_message {
+                    let output_item_done = json!({
+                        "type": "response.output_item.done",
+                        "response_id": response_id,
+                        "output_index": 0,
+                        "item": {
+                            "id": message_id,
+                            "type": "message",
+                            "status": "completed",
+                            "role": "assistant",
+                            "content": content
+                        }
+                    });
+                    send_responses_event(&tx, &mut responses_sequence_number, output_item_done).await;
+                }
 
                 let completed = build_stream_responses_completed_event(
                     &model,
@@ -3364,7 +3667,7 @@ fn stream_proxy_response(
                     created_at,
                     previous_response_id.as_deref(),
                 );
-                send_data(&tx, &completed.to_string()).await;
+                send_responses_event(&tx, &mut responses_sequence_number, completed).await;
                 persist_responses_session_entry(
                     &state,
                     &response_id,
@@ -3474,10 +3777,12 @@ async fn handle_stream_text(
     model: &str,
     anthropic_id: &str,
     response_id: &str,
+    message_id: &str,
     completion_id: &str,
     created: i64,
     text: &str,
     is_thinking: bool,
+    responses_sequence_number: &mut usize,
     message_started: &mut bool,
     next_block_index: &mut usize,
     text_block_index: &mut Option<usize>,
@@ -3557,9 +3862,12 @@ async fn handle_stream_text(
             let data = json!({
                 "type": if is_thinking { "response.reasoning.delta" } else { "response.output_text.delta" },
                 "response_id": response_id,
+                "item_id": message_id,
+                "output_index": 0,
+                "content_index": 0,
                 "delta": text
             });
-            send_data(tx, &data.to_string()).await;
+            send_responses_event(tx, responses_sequence_number, data).await;
         }
         ResponseFormat::OpenAI => {
             if is_thinking {
@@ -3651,6 +3959,18 @@ async fn send_data(tx: &mpsc::Sender<Result<Bytes, Infallible>>, payload: &str) 
     send_event(tx, None, payload).await
 }
 
+async fn send_responses_event(
+    tx: &mpsc::Sender<Result<Bytes, Infallible>>,
+    sequence_number: &mut usize,
+    mut payload: Value,
+) -> bool {
+    if payload.get("sequence_number").is_none() {
+        payload["sequence_number"] = json!(*sequence_number);
+        *sequence_number += 1;
+    }
+    send_data(tx, &payload.to_string()).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3673,6 +3993,7 @@ mod tests {
             last_error: Arc::new(AsyncMutex::new(None)),
             http: Client::new(),
             responses_sessions: Arc::new(AsyncMutex::new(HashMap::new())),
+            upstream_conversations: Arc::new(AsyncMutex::new(HashMap::new())),
         }
     }
 

@@ -27,6 +27,32 @@ export interface GatewayStatus {
   runtimeConfig: GatewayConfig | null;
 }
 
+interface GatewayConfigRaw {
+  enabled?: boolean
+  host?: string
+  port?: number
+  accessToken?: string
+  clientApiKeys?: string[]
+  region?: string
+  accountMode?: string
+  accountId?: string | null
+  groupId?: string | null
+  strategy?: string
+  threshold?: number
+  localOnly?: boolean
+  allowedIps?: string[]
+  logLevel?: string
+}
+
+interface GatewayStatusRaw {
+  running?: boolean
+  host?: string
+  port?: number
+  requestCount?: number
+  lastError?: string | null
+  runtimeConfig?: GatewayConfigRaw | null
+}
+
 export const DEFAULT_GATEWAY_CONFIG: GatewayConfig = {
   enabled: false,
   host: '127.0.0.1',
@@ -86,7 +112,7 @@ export const buildGatewayRuntimeSnapshot = (config: GatewayConfig) => JSON.strin
   logLevel: config.logLevel || 'debug'
 })
 
-export const hydrateGatewayConfig = (gatewayConfig: any): GatewayConfig => ({
+export const hydrateGatewayConfig = (gatewayConfig?: GatewayConfigRaw | null): GatewayConfig => ({
   ...(() => {
     const clientApiKeys = Array.isArray(gatewayConfig?.clientApiKeys)
       ? parseClientApiKeys(gatewayConfig.clientApiKeys.join('\n'))
@@ -114,7 +140,7 @@ export const hydrateGatewayConfig = (gatewayConfig: any): GatewayConfig => ({
   logLevel: gatewayConfig?.logLevel || 'debug'
 })
 
-export const buildGatewayStatusState = (gatewayStatus: any, gatewayConfig: any, fallbackConfig: GatewayConfig = DEFAULT_GATEWAY_CONFIG): GatewayStatus => ({
+export const buildGatewayStatusState = (gatewayStatus?: GatewayStatusRaw | null, gatewayConfig?: GatewayConfigRaw | null, fallbackConfig: GatewayConfig = DEFAULT_GATEWAY_CONFIG): GatewayStatus => ({
   running: gatewayStatus?.running ?? false,
   host: gatewayStatus?.host || gatewayConfig?.host || fallbackConfig.host,
   port: gatewayStatus?.port || gatewayConfig?.port || fallbackConfig.port,
@@ -146,10 +172,10 @@ export const buildGatewayPayload = (config: GatewayConfig) => ({
 
 export const loadGatewayPageData = async () => {
   const [gatewayConfig, gatewayStatus, accounts, groups, logDir] = await Promise.all([
-    invoke<any>('get_gateway_config'),
-    invoke<any>('get_gateway_status'),
-    invoke<any[]>('get_accounts'),
-    invoke<any[]>('get_groups'),
+    invoke<GatewayConfigRaw>('get_gateway_config'),
+    invoke<GatewayStatusRaw>('get_gateway_status'),
+    invoke<unknown[]>('get_accounts'),
+    invoke<unknown[]>('get_groups'),
     invoke<string>('get_gateway_log_dir'),
   ])
 
@@ -161,17 +187,17 @@ export const loadGatewayPageData = async () => {
     logDir: String(logDir || '')}
 }
 
-export const fetchGatewayStatus = async () => invoke<any>('get_gateway_status')
+export const fetchGatewayStatus = async () => invoke<GatewayStatusRaw>('get_gateway_status')
 
 export const fetchGatewayRequestLogs = async (limit = 120) => {
-  const logs = await invoke<any[]>('get_gateway_request_logs', { limit })
+  const logs = await invoke<unknown[]>('get_gateway_request_logs', { limit })
   return Array.isArray(logs) ? logs : []
 }
 
 export const saveGatewayConfig = async (config: GatewayConfig) => invoke('save_gateway_config', {
   config: buildGatewayPayload(config)})
 
-export const startGateway = async (config: GatewayConfig) => invoke<any>('start_gateway', {
+export const startGateway = async (config: GatewayConfig) => invoke<unknown>('start_gateway', {
   config: buildGatewayPayload(config)})
 
 export const stopGateway = async () => invoke('stop_gateway')

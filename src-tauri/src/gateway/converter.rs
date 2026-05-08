@@ -17,6 +17,7 @@ use tokio::net::lookup_host;
 use uuid::Uuid;
 
 pub const TOOL_DESCRIPTION_MAX_LENGTH: usize = 1024;
+const FALLBACK_INTERNAL_MODEL_ID: &str = "claude-sonnet-4.5";
 const WEB_SEARCH_TOOL_NAME: &str = "web_search";
 const WEB_SEARCH_TOOL_DESCRIPTION: &str =
     "Search the web for current information and return relevant results.";
@@ -466,7 +467,7 @@ pub fn get_internal_model_id(external_model: &str) -> Result<String, String> {
         | "claude-sonnet-4-5-20250929"
         | "claude-sonnet-4.5"
         | "claude-sonnet-latest"
-        | "sonnet" => "claude-sonnet-4.5",
+        | "sonnet" => FALLBACK_INTERNAL_MODEL_ID,
         "claude-sonnet-4" | "claude-sonnet-4-20250514" => "claude-sonnet-4",
         "claude-3-7-sonnet-20250219" | "claude-3.7-sonnet" => "claude-3-7-sonnet-20250219",
         "claude-3-5-sonnet-20241022" | "claude-3-5-sonnet-latest" | "claude-3.5-sonnet" => {
@@ -475,7 +476,7 @@ pub fn get_internal_model_id(external_model: &str) -> Result<String, String> {
         "auto" | "default" => "auto",
         other if other.starts_with("claude-opus-4-6-") => "claude-opus-4.6",
         other if other.starts_with("claude-sonnet-4-6-") => "claude-sonnet-4.6",
-        other => other,
+        _ => FALLBACK_INTERNAL_MODEL_ID,
     };
 
     Ok(model_id.to_string())
@@ -1024,7 +1025,13 @@ fn merge_adjacent_messages(messages: &[&NormalizedMessage]) -> Vec<NormalizedMes
 
     for message in messages {
         if let Some(last) = merged.last_mut() {
-            if last.role == message.role && last.role != "tool" {
+            let last_has_tool_result = content_contains_tool_results(last.content.as_ref());
+            let next_has_tool_result = content_contains_tool_results(message.content.as_ref());
+            if last.role == message.role
+                && last.role != "tool"
+                && !last_has_tool_result
+                && !next_has_tool_result
+            {
                 let existing = extract_text_content(last.content.as_ref());
                 let incoming = extract_text_content(message.content.as_ref());
                 last.content = Some(Value::String(join_with_newline(&existing, &incoming)));
@@ -1053,13 +1060,23 @@ fn build_user_context(
     tool_choice: Option<Value>,
     tool_results: Vec<KiroToolResult>,
 ) -> Option<UserInputMessageContext> {
-    if tools.is_none() && tool_choice.is_none() && tool_results.is_empty() {
+    let has_tools = tools
+        .as_ref()
+        .map(|items| !items.is_empty())
+        .unwrap_or(false);
+    let has_tool_results = !tool_results.is_empty();
+    // Kiro expects tool_choice only when tools are present in the same context.
+    // Some clients send tool_result follow-up turns without tools; forwarding
+    // tool_choice in that case can make the upstream request invalid.
+    let effective_tool_choice = if has_tools { tool_choice } else { None };
+
+    if !has_tools && effective_tool_choice.is_none() && !has_tool_results {
         return None;
     }
 
     Some(UserInputMessageContext {
         tools,
-        tool_choice,
+        tool_choice: effective_tool_choice,
         tool_results: if tool_results.is_empty() {
             None
         } else {
@@ -1304,6 +1321,9 @@ fn extract_tool_results(content: Option<&Value>) -> Vec<KiroToolResult> {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
+            if tool_use_id.trim().is_empty() {
+                return None;
+            }
             let content_text = match item.get("content") {
                 Some(Value::String(text)) => text.clone(),
                 Some(Value::Array(array)) if item_type == "web_search_tool_result" => {
@@ -1335,13 +1355,34 @@ fn extract_tool_results(content: Option<&Value>) -> Vec<KiroToolResult> {
 }
 
 fn extract_tool_results_from_tool_message(message: &NormalizedMessage) -> Vec<KiroToolResult> {
+    let Some(tool_use_id) = message
+        .tool_call_id
+        .as_ref()
+        .map(|id| id.trim())
+        .filter(|id| !id.is_empty())
+    else {
+        return Vec::new();
+    };
+
     vec![KiroToolResult {
         content: vec![KiroToolResultContent {
             text: extract_text_content(message.content.as_ref()),
         }],
         status: "success".to_string(),
-        tool_use_id: message.tool_call_id.clone().unwrap_or_default(),
+        tool_use_id: tool_use_id.to_string(),
     }]
+}
+
+fn content_contains_tool_results(content: Option<&Value>) -> bool {
+    let Some(Value::Array(items)) = content else {
+        return false;
+    };
+    items.iter().any(|item| {
+        matches!(
+            item.get("type").and_then(Value::as_str),
+            Some("tool_result" | "web_search_tool_result")
+        )
+    })
 }
 
 async fn extract_images(client: &Client, content: Option<&Value>) -> Vec<ImageBlock> {
@@ -1587,11 +1628,18 @@ fn extract_tool_uses(message: &NormalizedMessage) -> Option<Vec<KiroToolUse>> {
     let tool_calls = message.tool_calls.as_ref()?;
     let tool_uses: Vec<KiroToolUse> = tool_calls
         .iter()
-        .map(|tool_call| KiroToolUse {
-            name: tool_call.function.name.clone(),
-            input: serde_json::from_str(&tool_call.function.arguments)
-                .unwrap_or_else(|_| json!({})),
-            tool_use_id: tool_call.id.clone(),
+        .filter_map(|tool_call| {
+            let name = tool_call.function.name.trim();
+            let tool_use_id = tool_call.id.trim();
+            if name.is_empty() || tool_use_id.is_empty() {
+                return None;
+            }
+            Some(KiroToolUse {
+                name: name.to_string(),
+                input: serde_json::from_str(&tool_call.function.arguments)
+                    .unwrap_or_else(|_| json!({})),
+                tool_use_id: tool_use_id.to_string(),
+            })
         })
         .collect();
 
@@ -2898,6 +2946,11 @@ mod tests {
         );
         assert_eq!(
             get_internal_model_id("sonnet").expect("plain sonnet alias should default to 4.5"),
+            "claude-sonnet-4.5"
+        );
+        assert_eq!(
+            get_internal_model_id("gpt-4o-mini")
+                .expect("unknown model aliases should fallback to sonnet 4.5"),
             "claude-sonnet-4.5"
         );
     }

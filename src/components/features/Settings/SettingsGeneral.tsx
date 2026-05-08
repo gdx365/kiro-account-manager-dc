@@ -23,7 +23,6 @@ interface SettingsGeneralProps {
   autoRefresh: boolean;
   autoRefreshInterval: number;
   autoChangeMachineId: boolean;
-  machineIdMode: string;
   privacyMode: boolean;
   setPrivacyMode: (checked: boolean) => void;
   autoSwitchEnabled: boolean;
@@ -50,7 +49,6 @@ interface SettingsGeneralProps {
   handleAutoRefreshChange: (checked: boolean) => void;
   handleAutoRefreshIntervalChange: (value: string) => void;
   handleAutoChangeMachineIdChange: (checked: boolean) => void;
-  handleMachineIdModeChange: (mode: string) => void;
   handleAutoSwitchEnabledChange: (checked: boolean) => void;
   handleAutoSwitchThresholdChange: (value: number) => void;
   handleAutoSwitchIntervalChange: (value: string) => void;
@@ -61,7 +59,6 @@ function SettingsGeneral({
   autoRefresh, 
   autoRefreshInterval, 
   autoChangeMachineId, 
-  machineIdMode, 
   privacyMode,
   setPrivacyMode,
   autoSwitchEnabled, 
@@ -88,7 +85,6 @@ function SettingsGeneral({
   handleAutoRefreshChange, 
   handleAutoRefreshIntervalChange, 
   handleAutoChangeMachineIdChange, 
-  handleMachineIdModeChange, 
   handleAutoSwitchEnabledChange, 
   handleAutoSwitchThresholdChange, 
   handleAutoSwitchIntervalChange, 
@@ -173,17 +169,6 @@ function SettingsGeneral({
               <Shuffle size={16} />
               <span className="text-sm font-medium whitespace-nowrap">{t('settings.autoChangeMachineId')}</span>
             </label>
-            <div className="relative flex-1">
-              <Select value={machineIdMode} onValueChange={handleMachineIdModeChange} disabled={!autoChangeMachineId}>
-                <SelectTrigger className="text-foreground bg-background border-border focus:ring-primary/20">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-card border-border">
-                  <SelectItem value="bind" className="text-foreground">{t('settings.machineIdBind')} ({t('common.recommended')})</SelectItem>
-                  <SelectItem value="random" className="text-foreground">{t('settings.machineIdRandom')}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
           </div>
 
           {/* 隐私模式 */}

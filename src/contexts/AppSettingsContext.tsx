@@ -8,7 +8,6 @@ export interface AppSettings {
   autoRefresh: boolean;
   autoRefreshInterval: number;
   autoChangeMachineId: boolean;
-  bindMachineIdToAccount: boolean;
   browserPath: string;
   privacyMode: boolean;
   autoSwitchEnabled: boolean;
@@ -48,7 +47,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   autoRefresh: true,
   autoRefreshInterval: 50,
   autoChangeMachineId: true,
-  bindMachineIdToAccount: true,
   browserPath: '',
   privacyMode: true,
   autoSwitchEnabled: false,

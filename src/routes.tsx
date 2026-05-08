@@ -1,12 +1,12 @@
-import { lazy, LazyExoticComponent, ComponentType } from 'react'
+﻿import { lazy, LazyExoticComponent, ComponentType } from 'react'
 import { Home, Key, Settings2, LogIn, Settings, Info, Network, LucideIcon } from 'lucide-react'
 
 export interface RouteConfig {
-  id: string;
-  icon: LucideIcon;
-  nameKey: string;
-  descKey?: string;
-  component: LazyExoticComponent<ComponentType<any>>;
+  id: string
+  icon: LucideIcon
+  nameKey: string
+  descKey?: string
+  component: LazyExoticComponent<ComponentType<any>>
 }
 
 // 路由配置：菜单项 + 懒加载组件
@@ -22,5 +22,5 @@ export const routes: RouteConfig[] = [
 
 // 内部路由（不在侧边栏显示）
 export const internalRoutes: Record<string, LazyExoticComponent<ComponentType<any>>> = {
-  callback: lazy(() => import('./components/shared/AuthCallback'))
+  callback: lazy(() => import('./components/shared/AuthCallback')),
 }

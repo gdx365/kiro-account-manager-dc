@@ -5,13 +5,28 @@ import { useApp } from '../../../hooks/useApp'
 import { useDialog } from '../../../contexts/DialogContext'
 import { Zap, RefreshCw, Trash2, Server, FileText, Tag, ChevronDown, ChevronRight, ExternalLink, Download, Check, Globe } from 'lucide-react'
 import { handleUiError } from '../../../utils/errorLogger'
+import { formatSize } from './shared'
 import { getThemeAccent, getSolidAccentButton, getGradientAccentButton, getThemeSurfaceStyles } from './themeAccent'
 import React from 'react'
 
-// 格式化文件大小
-const formatSize = (bytes: number) => bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`
+interface PowerItem {
+  name: string
+  displayName?: string
+  description?: string
+  size: number
+  mcpServers: unknown[]
+  steeringFiles: unknown[]
+  autoInstalled?: boolean
+  repositoryUrl?: string
+  repositoryBranch?: string
+  repositoryCloneUrl?: string
+  pathInRepo?: string
+  iconUrl?: string
+  installed?: boolean
+}
 
-function PowersPanel({ onCountChange }: any) {
+// 格式化文件大小
+function PowersPanel({ onCountChange }: { onCountChange?: (count: number) => void }) {
   const { t, theme } = useApp()
   const accent = useMemo(() => getThemeAccent(theme), [theme])
   const { showConfirm, showSuccess } = useDialog()
@@ -29,13 +44,13 @@ function PowersPanel({ onCountChange }: any) {
   }
 
   const [tab, setTab] = useState('recommended') // 'installed' | 'recommended'
-  const [powers, setPowers] = useState<any[]>([])
-  const [recommended, setRecommended] = useState<any[]>([])
-  const [registries, setRegistries] = useState<any[]>([])
+  const [powers, setPowers] = useState<PowerItem[]>([])
+  const [recommended, setRecommended] = useState<PowerItem[]>([])
+  const [registries, setRegistries] = useState<unknown[]>([])
   const [loading, setLoading] = useState(true)
   const [recLoading, setRecLoading] = useState(false)
-  const [selectedPower, setSelectedPower] = useState<any>(null)
-  const [selectedRec, setSelectedRec] = useState<any>(null)
+  const [selectedPower, setSelectedPower] = useState<PowerItem | null>(null)
+  const [selectedRec, setSelectedRec] = useState<PowerItem | null>(null)
   const [expandedSections, setExpandedSections] = useState({ mcp: true, steering: false, md: false })
   const [installing, setInstalling] = useState<string | null>(null) // 正在安装的 power name
 
@@ -43,8 +58,8 @@ function PowersPanel({ onCountChange }: any) {
     setLoading(true)
     try {
       const [data, regs] = await Promise.all([
-        invoke<any[]>('get_powers'),
-        invoke<any[]>('get_power_registries')
+        invoke<PowerItem[]>('get_powers'),
+        invoke<unknown[]>('get_power_registries')
       ])
       setPowers(data)
       setRegistries(regs)
@@ -59,7 +74,7 @@ function PowersPanel({ onCountChange }: any) {
   const loadRecommended = useCallback(async () => {
     setRecLoading(true)
     try {
-      const data = await invoke<any[]>('get_recommended_powers')
+      const data = await invoke<PowerItem[]>('get_recommended_powers')
       setRecommended(data)
     } catch (e) {
       handleUiError('加载推荐 Powers 失败', e, { userMessage: t('powers.loadRecommendedFailed') || '加载推荐 Powers 失败' })
@@ -71,7 +86,7 @@ function PowersPanel({ onCountChange }: any) {
   useEffect(() => { loadPowers() }, [loadPowers])
   useEffect(() => { loadRecommended() }, [loadRecommended])
 
-  const handleUninstall = async (power: any) => {
+  const handleUninstall = async (power: PowerItem) => {
     if (!await showConfirm(t('powers.confirmUninstall'), t('powers.confirmUninstallPower', { name: power.name }))) return
     try {
       await invoke('uninstall_power', { name: power.name })
@@ -90,7 +105,7 @@ function PowersPanel({ onCountChange }: any) {
     if (url) openUrl(url).catch(() => window.open(url, '_blank'))
   }
 
-  const handleInstall = async (rec: any) => {
+  const handleInstall = async (rec: PowerItem) => {
     if (installing) return
     setInstalling(rec.name)
     try {
@@ -104,7 +119,7 @@ function PowersPanel({ onCountChange }: any) {
       setRecommended(prev => prev.map(r => r.name === rec.name ? { ...r, installed: true } : r))
       if (selectedRec?.name === rec.name) setSelectedRec({ ...selectedRec, installed: true })
       // 重新加载已安装列表
-      const data = await invoke<any[]>('get_powers')
+      const data = await invoke<PowerItem[]>('get_powers')
       setPowers(data)
       onCountChange?.(data?.length || 0)
       showSuccess(t('powers.installSuccess'), rec.displayName || rec.name)
@@ -115,8 +130,8 @@ function PowersPanel({ onCountChange }: any) {
     }
   }
 
-  const toggleSection = (key: string) => {
-    setExpandedSections((prev: any) => ({ ...prev, [key]: !prev[key] }))
+  const toggleSection = (key: keyof typeof expandedSections) => {
+    setExpandedSections(prev => ({ ...prev, [key]: !prev[key] }))
   }
 
   if (loading) {
@@ -261,7 +276,7 @@ function PowersPanel({ onCountChange }: any) {
                     >
                       <div className="flex items-start gap-2.5">
                         {rec.iconUrl ? (
-                          <img src={rec.iconUrl} alt="" className="w-7 h-7 rounded-lg flex-shrink-0 object-contain" onError={(e: any) => { e.target.style.display='none' }} />
+                          <img src={rec.iconUrl} alt="" className="w-7 h-7 rounded-lg flex-shrink-0 object-contain" onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display='none' }} />
                         ) : (
                           <div className={`flex items-center justify-center w-7 h-7 rounded-lg flex-shrink-0 ${
                             isSelected ? accent.bg : "bg-muted/30"
@@ -376,7 +391,7 @@ function PowersPanel({ onCountChange }: any) {
             <div className={`p-6 border-b border-border`}>
               <div className="flex items-start gap-4">
                 {selectedRec.iconUrl ? (
-                  <img src={selectedRec.iconUrl} alt="" className="w-14 h-14 rounded-xl flex-shrink-0 object-contain shadow-lg" onError={(e: any) => { e.target.style.display='none' }} />
+                  <img src={selectedRec.iconUrl} alt="" className="w-14 h-14 rounded-xl flex-shrink-0 object-contain shadow-lg" onError={(e: React.SyntheticEvent<HTMLImageElement>) => { e.currentTarget.style.display='none' }} />
                 ) : (
                   <div className={`w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0`}>
                     <Zap size={28} className={accent.text} />
@@ -465,7 +480,14 @@ function PowersPanel({ onCountChange }: any) {
 }
 
 // 可折叠区段
-function CollapsibleSection({ title, icon, expanded, onToggle, colors, children }: any) {
+function CollapsibleSection({ title, icon, expanded, onToggle, colors, children }: {
+  title: string
+  icon: React.ReactNode
+  expanded: boolean
+  onToggle: () => void
+  colors: { dialogHeader: string }
+  children: React.ReactNode
+}) {
   return (
     <div className={`border-b border-border`}>
       <button
