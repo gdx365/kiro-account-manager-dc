@@ -93,8 +93,7 @@
         "createStartMenuShortcut": true,
         "license": null,
         "headerImage": null,
-        "sidebarImage": null,
-        "compression": "lzma"
+        "sidebarImage": null
       }
     },
     "macOS": {
