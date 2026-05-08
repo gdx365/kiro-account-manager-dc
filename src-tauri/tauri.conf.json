@@ -72,7 +72,6 @@
       "icons/icon.ico"
     ],
     "targets": ["msi", "nsis", "app", "dmg", "deb", "rpm", "appimage"],
-    "externalBin": [],
     "windows": {
       "allowDowngrades": false,
       "webviewInstallMode": {
@@ -90,10 +89,7 @@
         "installMode": "perUser",
         "allowDowngrades": false,
         "createDesktopShortcut": true,
-        "createStartMenuShortcut": true,
-        "license": null,
-        "headerImage": null,
-        "sidebarImage": null
+        "createStartMenuShortcut": true
       }
     },
     "macOS": {
